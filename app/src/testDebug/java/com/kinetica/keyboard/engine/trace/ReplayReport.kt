@@ -41,9 +41,11 @@ class ReplayReport(private val deepK: Int) {
     var deepLost = 0
     val deepLostExamples = ArrayList<String>()
     val errors = ArrayList<String>()
+    private val micros = ArrayList<Long>()
 
     fun add(r: ReplayHarness.Result) {
         lines++
+        micros.add(r.micros)
         when (r.exact) {
             null -> Unit
             true -> { comparable++; exact++ }
@@ -84,6 +86,14 @@ class ReplayReport(private val deepK: Int) {
         )
         row("all", all)
         for ((b, t) in byBucket) if (t.n > 0) row(b, t)
+        if (micros.isNotEmpty()) {
+            val sorted = micros.sorted()
+            fun pct(p: Double) = sorted[((sorted.size - 1) * p).toInt()] / 1000.0
+            appendLine()
+            appendLine(
+                String.format(Locale.ROOT, "decode time on this JVM (not a phone): p50 %.1f ms, p95 %.1f ms", pct(0.5), pct(0.95)),
+            )
+        }
         if (deepLost > 0) {
             // Not a replay fault. The deep decode is a different search: a bigger
             // heap has a lower minimum, so more words pass and the fixed

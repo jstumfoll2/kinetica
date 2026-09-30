@@ -25,7 +25,12 @@ import java.util.concurrent.Executor
  * Paths go through key centres with gaussian noise, which makes these a check
  * of the recorder and replay, not a measure of accuracy on real thumbs.
  */
-class SyntheticSession(assets: File, seed: Long = 7) {
+class SyntheticSession(
+    assets: File,
+    seed: Long = 7,
+    /** Scales every noise term: 1 is the gate's default, 2-3 is closer to a hurried thumb. */
+    private val noise: Float = 1f,
+) {
     private val rnd = Random(seed)
     private val dir = File(assets, "dictionaries")
 
@@ -148,7 +153,7 @@ class SyntheticSession(assets: File, seed: Long = 7) {
         geometry.centerX(ch - 'a') * kwPx to geometry.centerY(ch - 'a') * kwPx
 
     private fun noise(sigmaPx: Float, capPx: Float): Float =
-        (rnd.nextGaussian().toFloat() * sigmaPx).coerceIn(-capPx, capPx)
+        (rnd.nextGaussian().toFloat() * sigmaPx * noise).coerceIn(-capPx * noise, capPx * noise)
 
     private fun tap(evs: ArrayList<Ev>, ch: Char, pid: Int, t0: Long) {
         val (cx, cy) = centre(ch)

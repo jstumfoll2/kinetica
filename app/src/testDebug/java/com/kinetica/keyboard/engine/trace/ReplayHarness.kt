@@ -5,6 +5,8 @@ import com.kinetica.keyboard.engine.KeyboardGeometry
 import com.kinetica.keyboard.engine.KineticaConstants
 import com.kinetica.keyboard.engine.LoadedDictionary
 import com.kinetica.keyboard.engine.BigramTable
+import com.kinetica.keyboard.engine.CtcReranker
+import com.kinetica.keyboard.engine.CtcScorer
 import com.kinetica.keyboard.engine.WordComposer
 import com.kinetica.keyboard.engine.WordPredictor
 import com.kinetica.keyboard.engine.models.InputToken
@@ -34,6 +36,15 @@ import java.util.concurrent.Executor
 class ReplayHarness(
     private val assets: File,
     val deepK: Int = DEFAULT_DEEP_K,
+    /**
+     * The shipping run's optional stage-A term: a [CtcReranker] over this
+     * encoder at [beta], reordering a heap [rerankDepth] deep. With a scorer
+     * set, the exactness check still compares against the recording, so it
+     * then reads as "unchanged from today" rather than "replayed".
+     */
+    private val ctc: CtcScorer? = null,
+    val beta: Float = 0f,
+    private val rerankDepth: Int = DEFAULT_DEEP_K,
 ) {
     private class Dict(val d: LoadedDictionary, val bigrams: BigramTable)
 
@@ -53,9 +64,19 @@ class ReplayHarness(
         Dict(d, b)
     }
 
-    private fun predictor(lang: String, british: Boolean, g: KeyboardGeometry, topK: Int): WordPredictor {
+    private fun predictor(
+        lang: String,
+        british: Boolean,
+        g: KeyboardGeometry,
+        topK: Int,
+        rerank: Boolean = false,
+    ): WordPredictor {
         val d = dict(lang, british)
-        return WordPredictor(d.d.trie, d.bigrams, g, d.d.forms, language = lang, topK = topK)
+        val r = if (rerank && ctc != null) CtcReranker(ctc, { g }, beta) else null
+        return WordPredictor(
+            d.d.trie, d.bigrams, g, d.d.forms, language = lang, topK = topK,
+            reranker = r, rerankDepth = rerankDepth,
+        )
     }
 
     /** One replayed line. [rank] and [deepRank] are 1-based, 0 when the label is absent. */
@@ -69,15 +90,19 @@ class ReplayHarness(
         /** Null when the line is not comparable; see [SwipeTrace.Word.comparable]. */
         val exact: Boolean?,
         val buckets: Set<String>,
+        /** Wall time of the shipping decode on this JVM; a relative figure, not a phone timing. */
+        val micros: Long,
     )
 
     fun replay(w: SwipeTrace.Word): Result {
         val tokens = SwipeTrace.replayTokens(w)
         val g = w.geometry.build()
         val cfg = w.config
-        val active = predictor(cfg.language, cfg.britishSpelling, g, KineticaConstants.TOP_K)
-        val alt = cfg.alternate?.let { predictor(it, cfg.britishSpelling, g, KineticaConstants.TOP_K) }
+        val active = predictor(cfg.language, cfg.britishSpelling, g, KineticaConstants.TOP_K, rerank = true)
+        val alt = cfg.alternate?.let { predictor(it, cfg.britishSpelling, g, KineticaConstants.TOP_K, rerank = true) }
+        val t0 = System.nanoTime()
         val shipping = composerDecode(active, alt, tokens, w.context)
+        val micros = (System.nanoTime() - t0) / 1000
 
         val deepActive = predictor(cfg.language, cfg.britishSpelling, g, deepK)
         val deepAlt = cfg.alternate?.let { predictor(it, cfg.britishSpelling, g, deepK) }
@@ -89,6 +114,7 @@ class ReplayHarness(
             w, tokens, shipping, deep,
             rankOf(label, shipping), rankOf(label, deep), exact,
             if (label == null) emptySet() else buckets(tokens, label),
+            micros,
         )
     }
 
