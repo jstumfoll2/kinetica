@@ -1,0 +1,33 @@
+name: Train swipe encoder
+
+# Runs the offline training experiment (tools/experiment) on GitHub's runners,
+# which can reach Hugging Face. Uses FUTO's MIT swipe DATASET only - never
+# FUTO's released model weights or their outputs.
+#
+# Only runs when the experiment itself changes, or by hand. Real user traces
+# never reach this job: they are not in the repo.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/project-thread-dbl1k6]
+    paths:
+      - tools/experiment/**
+      - .github/workflows/train.yml
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install "huggingface_hub>=0.24" pyarrow pandas
+
+      # First pass: learn the dataset's layout, printed to this job's log.
+      - name: Inspect dataset
+        run: python tools/experiment/futo_inspect.py
