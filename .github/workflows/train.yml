@@ -4,21 +4,29 @@ name: Train swipe encoder
 # which can reach Hugging Face. Uses FUTO's MIT swipe DATASET only - never
 # FUTO's released model weights or their outputs.
 #
-# Only runs when the experiment itself changes, or by hand. Real user traces
-# never reach this job: they are not in the repo.
+# Only runs when the training code changes, or by hand. Real user traces never
+# reach this job: they are not in the repo.
+#
+# The trained model and its log are pushed to the `models/futo` branch (model
+# files only, no app code), which is how they get back to the replay harness:
+# CI artifacts are not reachable from the development environment.
 
 on:
   workflow_dispatch:
   push:
     branches: [claude/project-thread-dbl1k6]
     paths:
-      - tools/experiment/**
+      - tools/experiment/futo_train.py
+      - tools/experiment/swipe_ctc.py
       - .github/workflows/train.yml
 
+permissions:
+  contents: write
+
 jobs:
-  inspect:
+  train:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 340
     steps:
       - uses: actions/checkout@v4
 
@@ -26,8 +34,23 @@ jobs:
         with:
           python-version: "3.11"
 
-      - run: pip install "huggingface_hub>=0.24" pyarrow pandas
+      - run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install numpy "huggingface_hub>=0.24"
 
-      # First pass: learn the dataset's layout, printed to this job's log.
-      - name: Inspect dataset
-        run: python tools/experiment/futo_inspect.py details
+      - name: Train
+        run: |
+          mkdir -p out
+          python tools/experiment/futo_train.py --out out/model_futo_v1.kctc --minutes 270 2>&1 | tee out/train_futo_v1.log
+
+      - name: Publish to the models/futo branch
+        run: |
+          cp tools/experiment/futo_train.py out/
+          cd out
+          git init -q -b models/futo
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          printf 'Swipe encoder trained by .github/workflows/train.yml from %s on FUTO swipe-1 (MIT dataset; no FUTO weights).\n' "$GITHUB_SHA" > README.md
+          git add -A
+          git commit -qm "futo v1 model from $GITHUB_SHA"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" models/futo
