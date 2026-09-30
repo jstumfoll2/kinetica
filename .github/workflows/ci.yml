@@ -23,3 +23,19 @@ jobs:
 
       # The project's exact green gate: build, JVM golden suite, lint.
       - run: ./gradlew assembleDebug test lint
+
+  # The engine and trace-replay harness as a plain JVM build: no Android SDK,
+  # so it fails fast on engine regressions and runs the exact-replay gate.
+  engine-jvm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v3
+
+      - run: ./gradlew -p tools/replay test
