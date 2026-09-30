@@ -43,5 +43,23 @@ def main():
         print("bytes", os.path.getsize(local))
 
 
+def details():
+    """The QWERTY layout file in full, and the first swipe-1 row in full."""
+    print("== swipe-5/layouts/qwerty.json")
+    print(open(hf_hub_download(REPO, "swipe-5/layouts/qwerty.json", repo_type="dataset")).read())
+    print("== swipe-5/README.md")
+    print(open(hf_hub_download(REPO, "swipe-5/README.md", repo_type="dataset")).read())
+    local = hf_hub_download(REPO, "dev.jsonl", repo_type="dataset")
+    with open(local) as fh:
+        print("== dev.jsonl row 1")
+        print(fh.readline())
+        n = sum(1 for _ in fh) + 1
+    print("dev rows", n)
+
+
 if __name__ == "__main__":
+    import sys
+    if sys.argv[1:] == ["details"]:
+        details()
+        raise SystemExit
     main()

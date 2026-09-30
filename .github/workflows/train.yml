@@ -30,4 +30,4 @@ jobs:
 
       # First pass: learn the dataset's layout, printed to this job's log.
       - name: Inspect dataset
-        run: python tools/experiment/futo_inspect.py
+        run: python tools/experiment/futo_inspect.py details
