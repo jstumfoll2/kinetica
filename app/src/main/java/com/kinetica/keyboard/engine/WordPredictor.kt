@@ -41,6 +41,13 @@ class WordPredictor(
      * every existing construction site stays source-compatible.
      */
     val language: String = "",
+    /**
+     * Heap size. Only the replay harness changes it, to measure recall at a
+     * deeper list than the bar shows; a larger K lowers the heap minimum and so
+     * loosens every early-abandon budget, which is why the shipping decode and a
+     * recall measurement are different runs.
+     */
+    private val topK: Int = KineticaConstants.TOP_K,
 ) {
     private val dtw = DtwMatcher()
     private val idealScratch = FloatArray(2 * KineticaConstants.RESAMPLE_N)
@@ -123,7 +130,7 @@ class WordPredictor(
         val prevWord = context.lastOrNull()?.let { AccentFolder.fold(it.lowercase()) }
         val prevWordId = prevWord?.let { trie.nodeFor(it) } ?: -1
 
-        val heap = CandidateHeap(KineticaConstants.TOP_K)
+        val heap = CandidateHeap(topK)
         val seqs = MergeAlternatives.sequences(tokens, dtw)
         val patterns = ArrayList<List<Matcher>>(4)
         for (seq in seqs) {
@@ -155,7 +162,7 @@ class WordPredictor(
         // somebody's guess at a cut, and cutting a guess again multiplies work for readings
         // this pass reaches directly.
         val primary = seqs.firstOrNull()
-        if (heap.count < KineticaConstants.TOP_K && primary != null && primary.any { it is SwipeToken }) {
+        if (heap.count < topK && primary != null && primary.any { it is SwipeToken }) {
             val p = patterns.firstOrNull()
             if (p != null && p.size == primary.size) {
                 val cuts = cutCandidates(primary)
@@ -173,7 +180,7 @@ class WordPredictor(
         // Fallback passes for sparse results: relaxed anchors (adjacent-key
         // typos, slightly missed taps in merged input), then transpositions
         // for all-tap sequences ("hte" -> "the").
-        if (heap.count < KineticaConstants.TOP_K) {
+        if (heap.count < topK) {
             for (p in patterns) {
                 if (p.any { it is Matcher.Anchor }) {
                     Search(p, g, prevWordId, prevWord, heap, fuzzyAnchors = true).run()
