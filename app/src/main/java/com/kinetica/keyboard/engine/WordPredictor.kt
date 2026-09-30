@@ -48,9 +48,18 @@ class WordPredictor(
      * recall measurement are different runs.
      */
     private val topK: Int = KineticaConstants.TOP_K,
+    /** Per-piece shape cost inside the search; see [SegmentScorer] for its contract. */
+    private val segmentScorer: SegmentScorer = DtwSegmentScorer(),
+    /** Optional stage-A reorder of the final list; null in the shipping decode. */
+    private val reranker: CandidateReranker? = null,
+    /**
+     * How deep the heap goes when [reranker] is set, so it has something to
+     * reorder; the list is cut back to [topK] after it. Ignored without one.
+     */
+    private val rerankDepth: Int = topK,
 ) {
     private val dtw = DtwMatcher()
-    private val idealScratch = FloatArray(2 * KineticaConstants.RESAMPLE_N)
+    private val heapDepth = if (reranker != null) maxOf(topK, rerankDepth) else topK
 
     /**
      * Trace suffix identifying which dictionary a decode line belongs to.
@@ -130,7 +139,7 @@ class WordPredictor(
         val prevWord = context.lastOrNull()?.let { AccentFolder.fold(it.lowercase()) }
         val prevWordId = prevWord?.let { trie.nodeFor(it) } ?: -1
 
-        val heap = CandidateHeap(topK)
+        val heap = CandidateHeap(heapDepth)
         val seqs = MergeAlternatives.sequences(tokens, dtw)
         val patterns = ArrayList<List<Matcher>>(4)
         for (seq in seqs) {
@@ -162,7 +171,7 @@ class WordPredictor(
         // somebody's guess at a cut, and cutting a guess again multiplies work for readings
         // this pass reaches directly.
         val primary = seqs.firstOrNull()
-        if (heap.count < topK && primary != null && primary.any { it is SwipeToken }) {
+        if (heap.count < heapDepth && primary != null && primary.any { it is SwipeToken }) {
             val p = patterns.firstOrNull()
             if (p != null && p.size == primary.size) {
                 val cuts = cutCandidates(primary)
@@ -180,7 +189,7 @@ class WordPredictor(
         // Fallback passes for sparse results: relaxed anchors (adjacent-key
         // typos, slightly missed taps in merged input), then transpositions
         // for all-tap sequences ("hte" -> "the").
-        if (heap.count < topK) {
+        if (heap.count < heapDepth) {
             for (p in patterns) {
                 if (p.any { it is Matcher.Anchor }) {
                     Search(p, g, prevWordId, prevWord, heap, fuzzyAnchors = true).run()
@@ -196,7 +205,8 @@ class WordPredictor(
                 }
             }
         }
-        val out = heap.sortedByScoreDesc()
+        val searched = heap.sortedByScoreDesc()
+        val out = if (reranker == null) searched else reranker.rerank(tokens, searched).take(topK)
         // Full score components per candidate: rank upsets are usually decided
         // by fw/boost arithmetic, not geometry, and d alone cannot show that.
         // Every factor of score = fw * geometricTerm(d) * bm * pb * ck is printed, so
@@ -993,6 +1003,13 @@ class WordPredictor(
             }
         }
 
+        /** This branch's pieces, copied: letters and piece arrays are reused by the walk. */
+        private fun segmentation(depth: Int): WordCandidate.Segmentation =
+            WordCandidate.Segmentation(
+                letters.copyOf(depth),
+                List(pieceCount) { WordCandidate.Piece(pieceSeg[it]!!.resampled, pieceFrom[it], pieceTo[it]) },
+            )
+
         private fun emit(
             node: Int,
             depth: Int,
@@ -1058,11 +1075,11 @@ class WordPredictor(
             var accum = 0f
             for (pi in 0 until pieceCount) {
                 val m = pieceSeg[pi]!!
-                if (!dtw.idealPath(letters, pieceFrom[pi], pieceTo[pi], g, idealScratch)) {
+                val d = segmentScorer.cost(m.resampled, letters, pieceFrom[pi], pieceTo[pi], g, budget - accum)
+                if (d == SegmentScorer.NO_PATH) {
                     if (traced) abandonedIdeal++
                     return
                 }
-                val d = dtw.distanceAccum(m.resampled, idealScratch, budget - accum)
                 if (d == Float.POSITIVE_INFINITY) {
                     if (traced) abandonedDtw++
                     return
@@ -1089,6 +1106,7 @@ class WordPredictor(
             // arithmetically. The abandon budget above deliberately keeps the
             // RAW values.
             val bmApplied = KineticaConstants.appliedBoost(bm, geoFit)
+            val seg = if (reranker == null) null else segmentation(depth)
             if (word != null) {
                 val pb = KineticaConstants.appliedBoost(personalBoost(word), geoFit)
                 val pbm = KineticaConstants.appliedBoost(personalBigramBoost(prevWord, word), geoFit)
@@ -1096,7 +1114,7 @@ class WordPredictor(
                 heap.offer(
                     WordCandidate(
                         word, score, dTotal, fw, bmApplied, node, source, language, pb,
-                        contactKeep, pbm,
+                        contactKeep, pbm, seg,
                     ),
                 )
             } else {
@@ -1112,7 +1130,7 @@ class WordPredictor(
                     heap.offer(
                         WordCandidate(
                             v.display, score, dTotal, fwV, bmApplied, node, source, language, pbV,
-                            contactKeep, pbmV,
+                            contactKeep, pbmV, seg,
                         ),
                     )
                 }
