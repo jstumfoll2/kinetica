@@ -15,6 +15,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".ime.PracticeActivity"
+            android:exported="false"
+            android:label="@string/practice_title"
+            android:windowSoftInputMode="stateAlwaysVisible|adjustResize" />
     </application>
 
 </manifest>
