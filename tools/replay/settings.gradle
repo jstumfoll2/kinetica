@@ -1,0 +1,6 @@
+// Standalone JVM build of the engine and the trace replay harness. Separate from
+// the Android build on purpose: it needs neither the Android SDK nor Google Maven,
+// so the harness runs anywhere a JDK does. Not part of the release build.
+pluginManagement { repositories { mavenCentral(); gradlePluginPortal() } }
+dependencyResolutionManagement { repositories { mavenCentral() } }
+rootProject.name = "kinetica-replay"
