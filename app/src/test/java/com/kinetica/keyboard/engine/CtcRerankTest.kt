@@ -1,6 +1,7 @@
 package com.kinetica.keyboard.engine
 
 import com.kinetica.keyboard.engine.models.StreamId
+import com.kinetica.keyboard.engine.models.WordCandidate
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
@@ -150,6 +151,50 @@ class CtcRerankTest {
         assertTrue(costs.all { it >= 0f && abs(it) < 1e6f })
         // Rescored list is sorted by the new score.
         assertEquals(out.map { it.score }.sortedDescending(), out.map { it.score })
+    }
+
+    /**
+     * A deep heap prunes at TOP_K, so the search is today's: a reranker that
+     * reorders nothing hands back exactly the shipping list, however deep it
+     * asked the heap to go. Pruning at the deep rank lost words the top 10 finds.
+     */
+    @Test
+    fun deepHeapKeepsTheShippingSearch() {
+        val g = TestData.qwertyGeometry()
+        val dict = en
+        assumeTrue(dict != null)
+        val (trie, forms, bigrams) = dict!!
+        val base = WordPredictor(trie, bigrams, g, forms)
+        var depthSeen = 0
+        val keep = CandidateReranker { _, c -> depthSeen = maxOf(depthSeen, c.size); c }
+        val deep = WordPredictor(trie, bigrams, g, forms, reranker = keep, rerankDepth = 50)
+        for (w in listOf("hello", "because", "world", "thanks", "keyboard", "pants", "cross", "avoid")) {
+            val tokens = listOf(TestData.sloppySwipe(w, g, 1000, 500, 0.3f))
+            val a = base.decode(tokens, listOf("the"))
+            val b = deep.decode(tokens, listOf("the"))
+            // Same scores, and the same words wherever a score is not tied: each heap
+            // keeps equal scores in its own slot order, so a tie may swap, or
+            // swap across the cut at the last place.
+            assertEquals(a.map { it.score.toRawBits() }, b.map { it.score.toRawBits() })
+            val tied = (a + b).groupBy { it.score.toRawBits() }.filterValues { it.size > 2 }.keys + a.last().score.toRawBits()
+            fun untied(l: List<WordCandidate>) = l.filter { it.score.toRawBits() !in tied }.map { it.word }
+            assertEquals(untied(a), untied(b))
+        }
+        assertTrue(depthSeen > KineticaConstants.TOP_K)
+    }
+
+    @Test
+    fun repeatedDecodesScoreTheSame() {
+        val g = TestData.qwertyGeometry()
+        val dict = en
+        assumeTrue(dict != null)
+        val (trie, forms, bigrams) = dict!!
+        val p = WordPredictor(trie, bigrams, g, forms, reranker = CtcReranker(scorer(), { g }, 0.3f), rerankDepth = 30)
+        val tokens = listOf(TestData.sloppySwipe("because", g, 1000, 500, 0.3f))
+        val first = p.decode(tokens, emptyList())
+        val again = p.decode(tokens, emptyList())
+        assertEquals(first.map { it.word }, again.map { it.word })
+        assertEquals(first.map { it.score.toRawBits() }, again.map { it.score.toRawBits() })
     }
 
     @Test

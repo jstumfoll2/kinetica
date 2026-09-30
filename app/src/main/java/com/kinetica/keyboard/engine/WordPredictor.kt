@@ -139,7 +139,7 @@ class WordPredictor(
         val prevWord = context.lastOrNull()?.let { AccentFolder.fold(it.lowercase()) }
         val prevWordId = prevWord?.let { trie.nodeFor(it) } ?: -1
 
-        val heap = CandidateHeap(heapDepth)
+        val heap = CandidateHeap(heapDepth, pruneRank = topK)
         val seqs = MergeAlternatives.sequences(tokens, dtw)
         val patterns = ArrayList<List<Matcher>>(4)
         for (seq in seqs) {
@@ -171,7 +171,7 @@ class WordPredictor(
         // somebody's guess at a cut, and cutting a guess again multiplies work for readings
         // this pass reaches directly.
         val primary = seqs.firstOrNull()
-        if (heap.count < heapDepth && primary != null && primary.any { it is SwipeToken }) {
+        if (heap.sparse && primary != null && primary.any { it is SwipeToken }) {
             val p = patterns.firstOrNull()
             if (p != null && p.size == primary.size) {
                 val cuts = cutCandidates(primary)
@@ -189,7 +189,7 @@ class WordPredictor(
         // Fallback passes for sparse results: relaxed anchors (adjacent-key
         // typos, slightly missed taps in merged input), then transpositions
         // for all-tap sequences ("hte" -> "the").
-        if (heap.count < heapDepth) {
+        if (heap.sparse) {
             for (p in patterns) {
                 if (p.any { it is Matcher.Anchor }) {
                     Search(p, g, prevWordId, prevWord, heap, fuzzyAnchors = true).run()
@@ -1106,11 +1106,11 @@ class WordPredictor(
             // arithmetically. The abandon budget above deliberately keeps the
             // RAW values.
             val bmApplied = KineticaConstants.appliedBoost(bm, geoFit)
-            val seg = if (reranker == null) null else segmentation(depth)
             if (word != null) {
                 val pb = KineticaConstants.appliedBoost(personalBoost(word), geoFit)
                 val pbm = KineticaConstants.appliedBoost(personalBigramBoost(prevWord, word), geoFit)
                 val score = fw * geo * bmApplied * pb * pbm * contactKeep
+                val seg = if (reranker != null && heap.accepts(word, score)) segmentation(depth) else null
                 heap.offer(
                     WordCandidate(
                         word, score, dTotal, fw, bmApplied, node, source, language, pb,
@@ -1127,6 +1127,7 @@ class WordPredictor(
                     val pbmV =
                         KineticaConstants.appliedBoost(personalBigramBoost(prevWord, v.display), geoFit)
                     val score = fwV * geo * bmApplied * pbV * pbmV * contactKeep
+                    val seg = if (reranker != null && heap.accepts(v.display, score)) segmentation(depth) else null
                     heap.offer(
                         WordCandidate(
                             v.display, score, dTotal, fwV, bmApplied, node, source, language, pbV,
@@ -1139,21 +1140,56 @@ class WordPredictor(
     }
 }
 
-/** Tiny fixed-capacity top-K set, deduped by word (best score wins). */
-class CandidateHeap(private val cap: Int) {
+/**
+ * Tiny fixed-capacity top-K set, deduped by word (best score wins).
+ *
+ * [pruneRank] is the rank whose score sets the search's abandon budget. By
+ * default it is the capacity, which is the shipping decode. A reranker keeps a
+ * deeper heap with [pruneRank] at TOP_K: the search then prunes exactly as it
+ * does today, so the top TOP_K entries are today's list, and the extra depth
+ * only holds words the unchanged search already scored. Pruning at the deep
+ * rank instead loosened every budget and starved the fixed emit cap, which lost
+ * words the shipping top 10 finds.
+ */
+class CandidateHeap(private val cap: Int, private val pruneRank: Int = cap) {
     private val items = ArrayList<WordCandidate>(cap + 1)
+    private var threshold = 0f
+    private var thresholdStale = true
 
     val count: Int get() = items.size
 
-    /** Minimum retained score once full; 0 while below capacity (no abandon budget yet). */
+    /** Whether the heap holds fewer than [pruneRank] words, i.e. today's "sparse result". */
+    val sparse: Boolean get() = items.size < pruneRank
+
+    /** Score at [pruneRank] once that many words are held; 0 before (no abandon budget yet). */
     fun minScoreIfFull(): Float {
-        if (items.size < cap) return 0f
-        var m = Float.MAX_VALUE
-        for (c in items) if (c.score < m) m = c.score
-        return m
+        if (items.size < pruneRank) return 0f
+        if (pruneRank == cap) {
+            var m = Float.MAX_VALUE
+            for (c in items) if (c.score < m) m = c.score
+            return m
+        }
+        if (thresholdStale) {
+            val s = FloatArray(items.size) { items[it].score }
+            s.sortDescending()
+            threshold = s[pruneRank - 1]
+            thresholdStale = false
+        }
+        return threshold
+    }
+
+    /** Whether [offer] would store [word] at [score]. */
+    fun accepts(word: String, score: Float): Boolean {
+        var min = Float.MAX_VALUE
+        for (c in items) {
+            if (c.word == word) return score > c.score
+            if (c.score < min) min = c.score
+        }
+        return items.size < cap || score > min
     }
 
     fun offer(c: WordCandidate) {
+        thresholdStale = true
         for (i in items.indices) {
             if (items[i].word == c.word) {
                 if (c.score > items[i].score) items[i] = c

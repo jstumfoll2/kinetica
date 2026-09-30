@@ -228,6 +228,10 @@ class CtcReranker(
     override fun rerank(tokens: List<InputToken>, candidates: List<WordCandidate>): List<WordCandidate> {
         if (beta == 0f || candidates.isEmpty()) return candidates
         val g = geometry() ?: return candidates
+        if (g !== cacheGeometry) {
+            encoded.clear()
+            cacheGeometry = g
+        }
         val cache = IdentityHashMap<FloatArray, FloatArray>()
         val rescored = candidates.map { c ->
             val cost = cost(c, g, cache)
@@ -246,7 +250,7 @@ class CtcReranker(
                 .filter { it == Alphabet.APOSTROPHE || g.hasKey(it) }
                 .map { CtcScorer.classOf(it) }.toIntArray()
             if (labels.isEmpty()) continue
-            val lp = cache.getOrPut(p.resampled) { scorer.logProbs(p.resampled, g) }
+            val lp = cache.getOrPut(p.resampled) { encode(p.resampled, g) }
             val nll = CtcScorer.nll(lp, KineticaConstants.RESAMPLE_N, labels)
             // A label longer than the frames can hold is as bad as it gets, not free.
             total += if (nll.isInfinite()) MAX_LETTER_COST * labels.size else nll
@@ -255,8 +259,30 @@ class CtcReranker(
         return if (letters == 0) null else total / letters
     }
 
+    /** A piece's samples compared by content: each decode rebuilds its pieces, the paths repeat. */
+    private class PathKey(val xy: FloatArray) {
+        private val hash = xy.contentHashCode()
+        override fun hashCode() = hash
+        override fun equals(other: Any?) = other is PathKey && xy.contentEquals(other.xy)
+    }
+
+    // The composer re-decodes the whole buffer after every token, so without this
+    // every swipe is encoded again on every later token of its word.
+    private val encoded = object : LinkedHashMap<PathKey, FloatArray>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<PathKey, FloatArray>) = size > ENCODED_MAX
+    }
+    private var cacheGeometry: KeyboardGeometry? = null
+
+    private fun encode(xy: FloatArray, g: KeyboardGeometry): FloatArray =
+        synchronized(encoded) {
+            encoded[PathKey(xy)] ?: scorer.logProbs(xy, g).also { encoded[PathKey(xy.copyOf())] = it }
+        }
+
     private companion object {
         /** Per-letter cost charged to a piece CTC cannot align at all. */
         const val MAX_LETTER_COST = 20f
+
+        /** Distinct piece paths kept encoded: a long buffer's pieces and cuts fit many times over. */
+        const val ENCODED_MAX = 256
     }
 }
