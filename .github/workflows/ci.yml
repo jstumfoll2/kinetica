@@ -24,6 +24,16 @@ jobs:
       # The project's exact green gate: build, JVM golden suite, lint.
       - run: ./gradlew assembleDebug test lint
 
+      # The DEV build (com.kinetica.keyboard.dev, with the trace screen and
+      # practice mode), for installing by hand. Signed with this runner's
+      # throwaway debug key, so a newer one only installs over an older one
+      # after uninstalling it.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kinetica-dev-apk
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 30
+
   # The engine and trace-replay harness as a plain JVM build: no Android SDK,
   # so it fails fast on engine regressions and runs the exact-replay gate.
   engine-jvm:
