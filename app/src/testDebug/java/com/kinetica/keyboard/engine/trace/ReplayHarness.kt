@@ -83,7 +83,7 @@ class ReplayHarness(
         val deepAlt = cfg.alternate?.let { predictor(it, cfg.britishSpelling, g, deepK) }
         val deep = deepDecode(deepActive, deepAlt, tokens, w.context)
 
-        val label = w.committed?.lowercase()
+        val label = w.label?.lowercase()
         val exact = if (w.comparable) sameList(shipping, w.shown.candidates) else null
         return Result(
             w, tokens, shipping, deep,

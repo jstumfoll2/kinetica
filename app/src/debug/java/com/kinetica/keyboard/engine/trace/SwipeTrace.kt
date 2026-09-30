@@ -44,7 +44,16 @@ import com.kinetica.keyboard.engine.models.WordCandidate
  *    its decode saw and `c` rows of [word, score, language]. `n` short of the
  *    buffer means the word was committed before its final decode landed.
  *  - `word`: what was committed, or null for an abandoned buffer. `how`: how it
- *    was committed, when the recorder's owner knows (null otherwise).
+ *    was committed, when the recorder's owner knows (null otherwise):
+ *    "picked" (from the bar), "tentative" (a decode a delimiter committed),
+ *    "autocorrect" (tap autocorrect replaced the literal), "typed" (the tap
+ *    literal as is).
+ *  - `target`: in practice mode, the word the user was asked to type. It is
+ *    the ground-truth label; `word` is what the keyboard made of it.
+ *
+ * A second line type, `{"v":1,"type":"correction","from":..,"to":..}`, records a
+ * pick from the correction strip after a commit: the most recent word line
+ * whose `word` is `from` was really meant as `to`.
  *
  * Personal data: every line carries what was typed, so a trace file is
  * personal by construction and never belongs in the repository. What is
@@ -113,7 +122,11 @@ object SwipeTrace {
         val shown: Shown,
         val committed: String?,
         val how: String? = null,
+        val target: String? = null,
     ) {
+        /** What the user meant: the practice prompt when there was one, else the commit. */
+        val label: String? get() = target ?: committed
+
         /** Whether [shown] can be compared with a replay: same input, same dictionaries. */
         val comparable: Boolean
             get() = !config.personal && !config.dictOverride && shown.tokenCount == tokens.size
@@ -205,7 +218,29 @@ object SwipeTrace {
         j.endArray().endObject()
         j.key("word").value(w.committed)
         j.key("how").value(w.how)
+        j.key("target").value(w.target)
         return j.endObject().toString()
+    }
+
+    fun encodeCorrection(from: String, to: String): String =
+        JsonWriter().beginObject().key("v").value(VERSION).key("type").value("correction")
+            .key("from").value(from).key("to").value(to).endObject().toString()
+
+    /** A line of either type: a [Word], or a correction as (from, to). */
+    sealed class Line {
+        data class WordLine(val word: Word) : Line()
+        data class Correction(val from: String, val to: String) : Line()
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    fun decodeLine(line: String): Line {
+        val o = Json.parse(line) as Map<String, Any?>
+        return if (o["type"] == "correction") {
+            require((o["v"] as JsonNum).toInt() == VERSION) { "unsupported trace version ${o["v"]}" }
+            Line.Correction(o["from"] as String, o["to"] as String)
+        } else {
+            Line.WordLine(decode(o))
+        }
     }
 
     private fun writeToken(j: JsonWriter, t: Token) {
@@ -246,8 +281,10 @@ object SwipeTrace {
 
     /** Parses one line; throws on anything that is not a v1 word line. */
     @Suppress("UNCHECKED_CAST")
-    fun decode(line: String): Word {
-        val o = Json.parse(line) as Map<String, Any?>
+    fun decode(line: String): Word = decode(Json.parse(line) as Map<String, Any?>)
+
+    @Suppress("UNCHECKED_CAST")
+    private fun decode(o: Map<String, Any?>): Word {
         require((o["v"] as JsonNum).toInt() == VERSION) { "unsupported trace version ${o["v"]}" }
         require(o["type"] == "word") { "not a word line: ${o["type"]}" }
         val c = o["cfg"] as Map<String, Any?>
@@ -269,7 +306,7 @@ object SwipeTrace {
         )
         return Word(
             cfg, geom, (o["ctx"] as List<Any?>).map { it as String }, tokens, shown,
-            o["word"] as String?, o["how"] as String?,
+            o["word"] as String?, o["how"] as String?, o["target"] as String?,
         )
     }
 

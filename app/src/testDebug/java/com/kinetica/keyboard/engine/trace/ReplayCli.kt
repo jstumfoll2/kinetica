@@ -42,17 +42,44 @@ object ReplayCli {
 
     fun run(harness: ReplayHarness, files: List<File>): ReplayReport {
         val report = ReplayReport(harness.deepK)
-        for (f in files) f.useLines { lines ->
+        for (f in files) {
+            for ((lineNo, w) in read(f, report)) {
+                try {
+                    report.add(harness.replay(w))
+                } catch (e: RuntimeException) {
+                    report.error(lineNo, e)
+                }
+            }
+        }
+        return report
+    }
+
+    /**
+     * Word lines of [f] with their line numbers, correction lines applied: a
+     * correction relabels the most recent earlier word committed as its `from`.
+     */
+    fun read(f: File, report: ReplayReport): List<Pair<Int, SwipeTrace.Word>> {
+        val words = ArrayList<Pair<Int, SwipeTrace.Word>>()
+        f.useLines { lines ->
             for ((i, line) in lines.withIndex()) {
                 if (line.isBlank()) continue
                 try {
-                    report.add(harness.replay(SwipeTrace.decode(line)))
+                    when (val l = SwipeTrace.decodeLine(line)) {
+                        is SwipeTrace.Line.WordLine -> words.add(i + 1 to l.word)
+                        is SwipeTrace.Line.Correction -> {
+                            val k = words.indexOfLast { it.second.committed.equals(l.from, ignoreCase = true) }
+                            if (k >= 0) {
+                                val (n, w) = words[k]
+                                words[k] = n to w.copy(committed = l.to, how = "corrected")
+                            }
+                        }
+                    }
                 } catch (e: RuntimeException) {
                     report.error(i + 1, e)
                 }
             }
         }
-        return report
+        return words
     }
 
     private fun opt(a: MutableList<String>, name: String): String? {

@@ -27,6 +27,17 @@ class SwipeTraceRecorder(
     /** Label for the next committed buffer, set by the owner just before commit when it knows. */
     var nextHow: String? = null
 
+    /** The practice prompt in force, or null outside practice mode. Read at each buffer end. */
+    var target: () -> String? = { null }
+
+    /** Whether a finished buffer is written at all; read at each buffer end. */
+    var enabled: () -> Boolean = { true }
+
+    /** A correction-strip pick replaced the last commit [from] with [to]. */
+    fun onCorrection(from: String, to: String) {
+        if (enabled()) sink(SwipeTrace.encodeCorrection(from, to))
+    }
+
     private class Open(val stream: StreamId, val geometry: SwipeTrace.Geometry) {
         val samples = ArrayList<SwipeTrace.Sample>(64)
     }
@@ -74,7 +85,12 @@ class SwipeTraceRecorder(
     ) {
         val how = if (committed != null) nextHow else null
         nextHow = null
+        if (tokens.isEmpty()) return
         val g = geometry ?: return
+        if (!enabled()) {
+            for (t in tokens) done.removeAll { it.token === t }
+            return
+        }
         val out = ArrayList<SwipeTrace.Token>(tokens.size)
         var geometryChanged = false
         for (t in tokens) {
@@ -93,7 +109,7 @@ class SwipeTraceRecorder(
         if (geometryChanged) return
         val word = SwipeTrace.Word(
             config(), g, context, out,
-            SwipeTrace.Shown(shownFor, SwipeTrace.candidates(shown)), committed, how,
+            SwipeTrace.Shown(shownFor, SwipeTrace.candidates(shown)), committed, how, target(),
         )
         sink(SwipeTrace.encode(word))
     }

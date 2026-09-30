@@ -56,6 +56,8 @@ class WordComposer(
         /**
          * [shownFor] is how many tokens the decode behind [shown] saw: fewer than
          * [tokens] means the word was committed before its last decode landed.
+         * Also called with an empty buffer (a commit of text no gesture made), so
+         * per-word state the observer holds is reset every word.
          */
         fun onBufferEnd(
             tokens: List<InputToken>,
@@ -243,7 +245,7 @@ class WordComposer(
 
     private fun endBuffer(committed: String?) {
         val o = observer
-        if (o != null && tokens.isNotEmpty()) {
+        if (o != null) {
             o.onBufferEnd(ArrayList(tokens), context.toList(), shown, shownFor, committed)
         }
         shown = emptyList()

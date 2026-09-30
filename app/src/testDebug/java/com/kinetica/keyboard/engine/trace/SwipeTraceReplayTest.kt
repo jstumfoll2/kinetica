@@ -101,6 +101,24 @@ class SwipeTraceReplayTest {
         assertEquals(tap, (back.tokens[1] as SwipeTrace.Literal).token)
     }
 
+    @Test
+    fun correctionsAndPracticeTargetsRelabel() {
+        assumeTrue(haveAssets("en"))
+        val lines = ArrayList<String>()
+        val s = SyntheticSession(assets)
+        s.record(listOf("them", "hello"), "en", null) { lines.add(it) }
+        val practice = SwipeTrace.decode(lines[1]).let { SwipeTrace.encode(it.copy(target = "jello")) }
+        val f = File.createTempFile("trace", ".jsonl")
+        try {
+            f.writeText(listOf(lines[0], SwipeTrace.encodeCorrection("them", "then"), practice).joinToString("\n"))
+            val words = ReplayCli.read(f, ReplayReport(ReplayHarness.DEFAULT_DEEP_K)).map { it.second }
+            assertEquals(listOf("then", "jello"), words.map { it.label })
+            assertEquals("corrected", words[0].how)
+        } finally {
+            f.delete()
+        }
+    }
+
     private fun replayAll(lines: List<String>): ReplayReport {
         val h = ReplayHarness(assets)
         val r = ReplayReport(h.deepK)

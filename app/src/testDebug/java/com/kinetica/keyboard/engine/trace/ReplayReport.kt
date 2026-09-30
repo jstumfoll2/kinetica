@@ -51,16 +51,16 @@ class ReplayReport(private val deepK: Int) {
                 comparable++
                 if (mismatches.size < MAX_EXAMPLES) {
                     mismatches.add(
-                        "${r.word.committed}: live=${r.word.shown.candidates.take(3).map { it.word }} " +
+                        "${r.word.label}: live=${r.word.shown.candidates.take(3).map { it.word }} " +
                             "replay=${r.shipping.take(3).map { it.word }}",
                     )
                 }
             }
         }
-        if (r.word.committed == null) { unlabelled++; return }
+        if (r.word.label == null) { unlabelled++; return }
         if (r.rank > 0 && r.deepRank == 0) {
             deepLost++
-            if (deepLostExamples.size < MAX_EXAMPLES) deepLostExamples.add("${r.word.committed} (shipping rank ${r.rank})")
+            if (deepLostExamples.size < MAX_EXAMPLES) deepLostExamples.add("${r.word.label} (shipping rank ${r.rank})")
         }
         all.add(r)
         for (b in r.buckets) byBucket.getValue(b).add(r)
