@@ -72,7 +72,8 @@ class ReplayHarness(
         rerank: Boolean = false,
     ): WordPredictor {
         val d = dict(lang, british)
-        val r = if (rerank && ctc != null) CtcReranker(ctc, { g }, beta) else null
+        // Beta 0 means today: no reranker at all, so the heap stays TOP_K deep too.
+        val r = if (rerank && ctc != null && beta != 0f) CtcReranker(ctc, { g }, beta) else null
         return WordPredictor(
             d.d.trie, d.bigrams, g, d.d.forms, language = lang, topK = topK,
             reranker = r, rerankDepth = rerankDepth,
