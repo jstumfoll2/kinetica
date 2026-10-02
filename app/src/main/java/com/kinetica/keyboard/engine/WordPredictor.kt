@@ -187,8 +187,10 @@ class WordPredictor(
     }
 
     /** [context] = last committed words, oldest first (window of 2). */
-    fun decode(tokens: List<InputToken>, context: List<String>): List<WordCandidate> {
+    fun decode(input: List<InputToken>, context: List<String>): List<WordCandidate> {
         val g = geometry ?: return emptyList()
+        // Two thumbs the touchscreen briefly merged into one contact, split back.
+        val tokens = ContactRepair.repair(input)
         if (tokens.isEmpty() || tokens.size > KineticaConstants.MAX_WORD_LEN) return emptyList()
         DecodeTrace.log { "decode in$langTag: " + tokens.sortedBy { it.tStart }.joinToString(" ") { traceToken(it) } + " ctx=$context" }
         val prevWord = context.lastOrNull()?.let { AccentFolder.fold(it.lowercase()) }
