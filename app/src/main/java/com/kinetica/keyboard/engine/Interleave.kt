@@ -57,6 +57,10 @@ class Interleave private constructor(
     private val dist = FloatArray(Alphabet.LETTERS * strokes * grid)
     private val distReady = BooleanArray(Alphabet.LETTERS)
 
+    /** The lowest cost [step] wrote into its last row (INF when it returned false). */
+    var lastMin: Float = INF
+        private set
+
     init {
         var j = 0
         for (i in 0 until grid) {
@@ -64,10 +68,6 @@ class Interleave private constructor(
             hi[i] = j
         }
     }
-
-    /** The lowest cost [step] wrote into its last row (INF when it returned false). */
-    var lastMin: Float = INF
-        private set
 
     /** The row before any letter: nothing assigned, no moment yet. */
     fun initialRow(): FloatArray = FloatArray(rowSize) { INF }.also { it[0] = 0f }
