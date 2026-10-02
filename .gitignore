@@ -10,3 +10,7 @@ keystore.properties
 .kotlin/
 captures/
 __pycache__/
+
+# Swipe traces hold what was typed. Never commit them.
+*.jsonl
+traces/

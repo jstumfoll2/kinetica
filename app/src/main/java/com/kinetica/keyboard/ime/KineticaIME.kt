@@ -131,6 +131,9 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
     private var secondaryCounts = ConcurrentHashMap<String, Int>()
     private var secondaryLanguage: String? = null
 
+    // Whether the loaded trie had blocked words removed; only the word trace reads it.
+    private var blockedLoaded = false
+
     // Language of each candidate currently on offer, keyed by its display form
     // (lowercased). The bar and the commit path work in strings, so this is how
     // a picked or committed word finds the dictionary it came from.
@@ -324,6 +327,20 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
         // lines go, is TraceRecorder's business: the release source set has a stub
         // that installs nothing.
         TraceRecorder.install(this)
+        TraceRecorder.attachEngine(
+            engine,
+            TraceInfo(
+                language = { config.language },
+                alternate = { secondaryLanguage },
+                britishSpelling = { config.britishSpelling },
+                personal = {
+                    personalCounts.isNotEmpty() || personalPairs.isNotEmpty() || blockedLoaded ||
+                        secondaryCounts.isNotEmpty() || secondaryPairs.isNotEmpty()
+                },
+                dictOverride = { DictionaryStore.wordlistOverride(this, config.language).exists() },
+                suppressed = { editorState.teachesNothing },
+            ),
+        )
         engine.maxPointers = 2
         @Suppress("DEPRECATION")
         vibrator = getSystemService(VIBRATOR_SERVICE) as? Vibrator
@@ -477,6 +494,7 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
                     val counts = ConcurrentHashMap<String, Int>(userRows.size * 2)
                     for (row in userRows) counts[row.word] = row.frequency
                     personalCounts = counts
+                    blockedLoaded = blocked.isNotEmpty()
                     val pairs = pairMap(pairRows)
                     personalPairs = pairs
                     val p = WordPredictor(
@@ -499,6 +517,7 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
                     }
                     composer = WordComposer(p, decodeExecutor, mainExecutor, this).also {
                         it.alternatePredictor = secondaryPredictor
+                        TraceRecorder.attachComposer(it)
                     }
                     Log.i(
                         TAG,
@@ -2455,6 +2474,7 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
             tentativeWord = kept.staleWord
         }
         replaceTentative(word)
+        TraceRecorder.label("picked")
         commitWordInternal(word)
         commitTracked(" ")
         // A picked word's space is the keyboard's own, exactly like the idle
@@ -2477,6 +2497,7 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
             return
         }
         cancelAutospace()
+        TraceRecorder.correction(current, replacement)
         val tail = before.subSequence(before.length - span + current.length, before.length)
         ich.replaceBeforeCursor(span, replacement + tail)
         expectedSelectionUpdates++
@@ -2518,6 +2539,7 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
         }
 
         var finalWord = tentativeWord
+        var how = if (comp.hasSwipeToken()) "tentative" else "typed"
         val p = predictor
         val threshold = config.autocorrectConfidence
         if (p != null && !comp.hasSwipeToken() && lastLiteral.isNotEmpty() &&
@@ -2532,6 +2554,7 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
                 val display = displayWord(target.word)
                 replaceTentative(display)
                 finalWord = display
+                how = "autocorrect"
             }
         }
         // English's lone "i". Nothing upstream can reach it: letters are
@@ -2544,6 +2567,7 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
             replaceTentative(cased)
             finalWord = cased
         }
+        TraceRecorder.label(how)
         commitWordInternal(finalWord)
         return true
     }

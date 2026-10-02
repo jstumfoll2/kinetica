@@ -63,6 +63,14 @@ class KeyboardGeometry private constructor(
             yKw >= rects[base + 1] - inflateKw && yKw < rects[base + 3] + inflateKw
     }
 
+    /**
+     * The key's rect in kw as (left, top, right, bottom), or null when the
+     * layout has no such key. A copy: for the trace recorder, which stores kw
+     * rects so [fromKw] rebuilds this geometry bit for bit.
+     */
+    fun rectKw(code: Int): FloatArray? =
+        if (!hasKey(code)) null else rects.copyOfRange(code * 4, code * 4 + 4)
+
     /** Letter code nearest to the point by center distance, or -1 if none present. */
     fun nearestKey(xKw: Float, yKw: Float): Int {
         var best = -1
@@ -92,6 +100,25 @@ class KeyboardGeometry private constructor(
         ): KeyboardGeometry {
             require(keyWidthPx > 0f) { "keyWidthPx must be positive" }
             require(letterRectsPx.size == codes.size)
+            return fromKw(
+                keyWidthPx, midlinePx,
+                letterRectsPx.map { r -> FloatArray(4) { r[it] / keyWidthPx } }, codes,
+            )
+        }
+
+        /**
+         * Same as [fromPx] with the rects already in kw. Replay uses it: a px
+         * rect rebuilt from a kw one does not always divide back to the same
+         * float, so a trace stores what the engine actually used.
+         */
+        fun fromKw(
+            keyWidthPx: Float,
+            midlinePx: Float,
+            letterRectsKw: List<FloatArray>,
+            codes: IntArray,
+        ): KeyboardGeometry {
+            require(keyWidthPx > 0f) { "keyWidthPx must be positive" }
+            require(letterRectsKw.size == codes.size)
             val present = BooleanArray(Alphabet.LETTERS)
             val cx = FloatArray(Alphabet.LETTERS)
             val cy = FloatArray(Alphabet.LETTERS)
@@ -99,12 +126,12 @@ class KeyboardGeometry private constructor(
             for (i in codes.indices) {
                 val code = codes[i]
                 if (code !in 0 until Alphabet.LETTERS) continue
-                val r = letterRectsPx[i]
+                val r = letterRectsKw[i]
                 val base = code * 4
-                rects[base] = r[0] / keyWidthPx
-                rects[base + 1] = r[1] / keyWidthPx
-                rects[base + 2] = r[2] / keyWidthPx
-                rects[base + 3] = r[3] / keyWidthPx
+                rects[base] = r[0]
+                rects[base + 1] = r[1]
+                rects[base + 2] = r[2]
+                rects[base + 3] = r[3]
                 cx[code] = (rects[base] + rects[base + 2]) / 2f
                 cy[code] = (rects[base + 1] + rects[base + 3]) / 2f
                 present[code] = true

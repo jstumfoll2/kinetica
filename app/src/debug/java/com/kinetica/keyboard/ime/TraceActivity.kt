@@ -26,6 +26,12 @@ import java.io.IOException
 class TraceActivity : AppCompatActivity() {
 
     private lateinit var stats: TextView
+    private lateinit var wordStats: TextView
+
+    private val createWordExport =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("application/x-ndjson")) { uri ->
+            if (uri != null) write(uri, TraceRecorder.words.readAll())
+        }
 
     private val createExport =
         registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
@@ -66,6 +72,36 @@ class TraceActivity : AppCompatActivity() {
             }
         }
 
+        wordStats = TextView(this).apply { textSize = 15f }
+        val wordToggle = SwitchCompat(this).apply {
+            text = getString(R.string.trace_words_recording)
+            textSize = 16f
+            isChecked = TraceRecorder.words.enabled
+            setOnCheckedChangeListener { _, on -> TraceRecorder.words.enabled = on }
+        }
+        val wordExplain = TextView(this).apply {
+            text = getString(R.string.trace_words_explain)
+            textSize = 13f
+        }
+        val wordExport = Button(this).apply {
+            text = getString(R.string.trace_words_export)
+            setOnClickListener { createWordExport.launch("kinetica_words_v1.jsonl") }
+        }
+        val wordClear = Button(this).apply {
+            text = getString(R.string.trace_words_clear)
+            setOnClickListener {
+                TraceRecorder.words.clear()
+                refresh()
+                Toast.makeText(this@TraceActivity, R.string.trace_cleared, Toast.LENGTH_SHORT).show()
+            }
+        }
+        val practice = Button(this).apply {
+            text = getString(R.string.practice_open)
+            setOnClickListener {
+                startActivity(android.content.Intent(this@TraceActivity, PracticeActivity::class.java))
+            }
+        }
+
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(pad)
@@ -74,6 +110,12 @@ class TraceActivity : AppCompatActivity() {
             addView(exportButton)
             addView(clearButton)
             addView(explain)
+            addView(wordToggle)
+            addView(wordStats)
+            addView(wordExport)
+            addView(wordClear)
+            addView(practice)
+            addView(wordExplain)
         }
         setContentView(ScrollView(this).apply { addView(column) })
     }
@@ -95,12 +137,25 @@ class TraceActivity : AppCompatActivity() {
                 readableSize(bytes),
             )
         }
+        val wordBytes = TraceRecorder.words.sizeBytes()
+        wordStats.text = if (wordBytes == 0L) {
+            getString(R.string.trace_empty)
+        } else {
+            resources.getQuantityString(
+                R.plurals.trace_stats,
+                TraceRecorder.words.lines.toInt(),
+                TraceRecorder.words.lines,
+                readableSize(wordBytes),
+            )
+        }
     }
 
-    private fun export(uri: Uri) {
+    private fun export(uri: Uri) = write(uri, TraceRecorder.readAll())
+
+    private fun write(uri: Uri, text: String) {
         val ok = try {
             contentResolver.openOutputStream(uri)?.bufferedWriter()?.use {
-                it.write(TraceRecorder.readAll())
+                it.write(text)
             } != null
         } catch (e: IOException) {
             false

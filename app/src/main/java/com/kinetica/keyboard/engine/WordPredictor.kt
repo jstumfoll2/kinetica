@@ -41,9 +41,32 @@ class WordPredictor(
      * every existing construction site stays source-compatible.
      */
     val language: String = "",
+    /**
+     * Heap size. Only the replay harness changes it, to measure recall at a
+     * deeper list than the bar shows; a larger K lowers the heap minimum and so
+     * loosens every early-abandon budget, which is why the shipping decode and a
+     * recall measurement are different runs.
+     */
+    private val topK: Int = KineticaConstants.TOP_K,
+    /** Per-piece shape cost inside the search; see [SegmentScorer] for its contract. */
+    private val segmentScorer: SegmentScorer = DtwSegmentScorer(),
+    /** Optional stage-A reorder of the final list; null in the shipping decode. */
+    private val reranker: CandidateReranker? = null,
+    /**
+     * How deep the heap goes when [reranker] is set, so it has something to
+     * reorder; the list is cut back to [topK] after it. Ignored without one.
+     */
+    private val rerankDepth: Int = topK,
+    /**
+     * Read two-thumb overlapped input on one timeline ([Interleave]) instead of
+     * as cut-and-merged pieces. Off reproduces the pre-interleave decoder.
+     */
+    private val interleave: Boolean = KineticaConstants.INTERLEAVE_ENABLED,
+    /** Scale of interleaved scores against cut-and-merge ones; see [withInterleaved]. */
+    private val interleaveWeight: Float = KineticaConstants.INTERLEAVE_WEIGHT,
 ) {
     private val dtw = DtwMatcher()
-    private val idealScratch = FloatArray(2 * KineticaConstants.RESAMPLE_N)
+    private val heapDepth = if (reranker != null) maxOf(topK, rerankDepth) else topK
 
     /**
      * Trace suffix identifying which dictionary a decode line belongs to.
@@ -115,15 +138,68 @@ class WordPredictor(
     fun isLivePrefix(s: String): Boolean =
         s.isNotEmpty() && trie.prefixNode(AccentFolder.fold(s.lowercase())) != -1
 
+    /**
+     * Both readings of two-thumb input in one list: each word keeps the better
+     * of its cut-and-merge score and its interleaved score times
+     * [interleaveWeight], which puts the two geometric models on one scale. A
+     * word only the cut-and-merge search reaches (a tap made early on purpose,
+     * say) keeps its place.
+     */
+    private fun withInterleaved(il: List<WordCandidate>, rest: List<WordCandidate>): List<WordCandidate> {
+        val best = LinkedHashMap<String, WordCandidate>()
+        for (c in rest) best[c.word] = c
+        for (c in il) {
+            val w = c.copy(score = c.score * interleaveWeight)
+            val have = best[c.word]
+            if (have == null || w.score > have.score) best[c.word] = w
+        }
+        return best.values.sortedByDescending { it.score }.take(topK)
+    }
+
+    /**
+     * Two-thumb overlapped input: the best interleaved readings, scored as
+     * `fw * geometric(cost) * bigram * personal`, one model for the whole list.
+     */
+    private fun interleaved(il: Interleave, prevWordId: Int): List<WordCandidate> {
+        val search = InterleavedSearch(trie, il)
+        val hits = search.run(KineticaConstants.INTERLEAVE_KEEP)
+        val out = ArrayList<WordCandidate>(hits.size)
+        for (h in hits) {
+            val geo = InterleavedSearch.geometric(h.cost)
+            val bm = bigrams.multiplier(prevWordId, h.node)
+            val variants = forms[h.node]
+            if (variants == null) {
+                val pb = personalBoost(h.word)
+                out.add(WordCandidate(h.word, h.fw * geo * bm * pb, h.cost, h.fw, bm, h.node, WordCandidate.Source.MERGED, language, pb))
+            } else {
+                for (v in variants) {
+                    val fwV = KineticaConstants.FREQ_WEIGHT_FLOOR +
+                        (1f - KineticaConstants.FREQ_WEIGHT_FLOOR) * v.freqByte / 255f
+                    val pb = personalBoost(v.display)
+                    out.add(WordCandidate(v.display, fwV * geo * bm * pb, h.cost, fwV, bm, h.node, WordCandidate.Source.MERGED, language, pb))
+                }
+            }
+        }
+        val seen = HashSet<String>()
+        val ranked = out.sortedByDescending { it.score }.filter { seen.add(it.word) }.take(topK)
+        DecodeTrace.log { "interleave$langTag: nodes=${search.visited} " + ranked.take(5).joinToString(" ") { "${it.word}:${(it.dtwDistance * 100).toInt() / 100f}" } }
+        return ranked
+    }
+
     /** [context] = last committed words, oldest first (window of 2). */
-    fun decode(tokens: List<InputToken>, context: List<String>): List<WordCandidate> {
+    fun decode(input: List<InputToken>, context: List<String>): List<WordCandidate> {
         val g = geometry ?: return emptyList()
+        // Two thumbs the touchscreen briefly merged into one contact, split back.
+        val tokens = ContactRepair.repair(input)
         if (tokens.isEmpty() || tokens.size > KineticaConstants.MAX_WORD_LEN) return emptyList()
         DecodeTrace.log { "decode in$langTag: " + tokens.sortedBy { it.tStart }.joinToString(" ") { traceToken(it) } + " ctx=$context" }
         val prevWord = context.lastOrNull()?.let { AccentFolder.fold(it.lowercase()) }
         val prevWordId = prevWord?.let { trie.nodeFor(it) } ?: -1
 
-        val heap = CandidateHeap(KineticaConstants.TOP_K)
+        val il = if (interleave) Interleave.of(tokens, g) else null
+        val ilHits = if (il != null) interleaved(il, prevWordId) else emptyList()
+
+        val heap = CandidateHeap(heapDepth, pruneRank = topK)
         val seqs = MergeAlternatives.sequences(tokens, dtw)
         val patterns = ArrayList<List<Matcher>>(4)
         for (seq in seqs) {
@@ -155,7 +231,7 @@ class WordPredictor(
         // somebody's guess at a cut, and cutting a guess again multiplies work for readings
         // this pass reaches directly.
         val primary = seqs.firstOrNull()
-        if (heap.count < KineticaConstants.TOP_K && primary != null && primary.any { it is SwipeToken }) {
+        if (heap.sparse && primary != null && primary.any { it is SwipeToken }) {
             val p = patterns.firstOrNull()
             if (p != null && p.size == primary.size) {
                 val cuts = cutCandidates(primary)
@@ -173,7 +249,7 @@ class WordPredictor(
         // Fallback passes for sparse results: relaxed anchors (adjacent-key
         // typos, slightly missed taps in merged input), then transpositions
         // for all-tap sequences ("hte" -> "the").
-        if (heap.count < KineticaConstants.TOP_K) {
+        if (heap.sparse) {
             for (p in patterns) {
                 if (p.any { it is Matcher.Anchor }) {
                     Search(p, g, prevWordId, prevWord, heap, fuzzyAnchors = true).run()
@@ -189,7 +265,9 @@ class WordPredictor(
                 }
             }
         }
-        val out = heap.sortedByScoreDesc()
+        val searched = heap.sortedByScoreDesc()
+        val reranked = if (reranker == null) searched else reranker.rerank(tokens, searched).take(topK)
+        val out = if (ilHits.isEmpty()) reranked else withInterleaved(ilHits, reranked)
         // Full score components per candidate: rank upsets are usually decided
         // by fw/boost arithmetic, not geometry, and d alone cannot show that.
         // Every factor of score = fw * geometricTerm(d) * bm * pb * ck is printed, so
@@ -986,6 +1064,13 @@ class WordPredictor(
             }
         }
 
+        /** This branch's pieces, copied: letters and piece arrays are reused by the walk. */
+        private fun segmentation(depth: Int): WordCandidate.Segmentation =
+            WordCandidate.Segmentation(
+                letters.copyOf(depth),
+                List(pieceCount) { WordCandidate.Piece(pieceSeg[it]!!.resampled, pieceFrom[it], pieceTo[it]) },
+            )
+
         private fun emit(
             node: Int,
             depth: Int,
@@ -1051,11 +1136,11 @@ class WordPredictor(
             var accum = 0f
             for (pi in 0 until pieceCount) {
                 val m = pieceSeg[pi]!!
-                if (!dtw.idealPath(letters, pieceFrom[pi], pieceTo[pi], g, idealScratch)) {
+                val d = segmentScorer.cost(m.resampled, letters, pieceFrom[pi], pieceTo[pi], g, budget - accum)
+                if (d == SegmentScorer.NO_PATH) {
                     if (traced) abandonedIdeal++
                     return
                 }
-                val d = dtw.distanceAccum(m.resampled, idealScratch, budget - accum)
                 if (d == Float.POSITIVE_INFINITY) {
                     if (traced) abandonedDtw++
                     return
@@ -1086,10 +1171,11 @@ class WordPredictor(
                 val pb = KineticaConstants.appliedBoost(personalBoost(word), geoFit)
                 val pbm = KineticaConstants.appliedBoost(personalBigramBoost(prevWord, word), geoFit)
                 val score = fw * geo * bmApplied * pb * pbm * contactKeep
+                val seg = if (reranker != null && heap.accepts(word, score)) segmentation(depth) else null
                 heap.offer(
                     WordCandidate(
                         word, score, dTotal, fw, bmApplied, node, source, language, pb,
-                        contactKeep, pbm,
+                        contactKeep, pbm, seg,
                     ),
                 )
             } else {
@@ -1102,10 +1188,11 @@ class WordPredictor(
                     val pbmV =
                         KineticaConstants.appliedBoost(personalBigramBoost(prevWord, v.display), geoFit)
                     val score = fwV * geo * bmApplied * pbV * pbmV * contactKeep
+                    val seg = if (reranker != null && heap.accepts(v.display, score)) segmentation(depth) else null
                     heap.offer(
                         WordCandidate(
                             v.display, score, dTotal, fwV, bmApplied, node, source, language, pbV,
-                            contactKeep, pbmV,
+                            contactKeep, pbmV, seg,
                         ),
                     )
                 }
@@ -1114,21 +1201,56 @@ class WordPredictor(
     }
 }
 
-/** Tiny fixed-capacity top-K set, deduped by word (best score wins). */
-class CandidateHeap(private val cap: Int) {
+/**
+ * Tiny fixed-capacity top-K set, deduped by word (best score wins).
+ *
+ * [pruneRank] is the rank whose score sets the search's abandon budget. By
+ * default it is the capacity, which is the shipping decode. A reranker keeps a
+ * deeper heap with [pruneRank] at TOP_K: the search then prunes exactly as it
+ * does today, so the top TOP_K entries are today's list, and the extra depth
+ * only holds words the unchanged search already scored. Pruning at the deep
+ * rank instead loosened every budget and starved the fixed emit cap, which lost
+ * words the shipping top 10 finds.
+ */
+class CandidateHeap(private val cap: Int, private val pruneRank: Int = cap) {
     private val items = ArrayList<WordCandidate>(cap + 1)
+    private var threshold = 0f
+    private var thresholdStale = true
 
     val count: Int get() = items.size
 
-    /** Minimum retained score once full; 0 while below capacity (no abandon budget yet). */
+    /** Whether the heap holds fewer than [pruneRank] words, i.e. today's "sparse result". */
+    val sparse: Boolean get() = items.size < pruneRank
+
+    /** Score at [pruneRank] once that many words are held; 0 before (no abandon budget yet). */
     fun minScoreIfFull(): Float {
-        if (items.size < cap) return 0f
-        var m = Float.MAX_VALUE
-        for (c in items) if (c.score < m) m = c.score
-        return m
+        if (items.size < pruneRank) return 0f
+        if (pruneRank == cap) {
+            var m = Float.MAX_VALUE
+            for (c in items) if (c.score < m) m = c.score
+            return m
+        }
+        if (thresholdStale) {
+            val s = FloatArray(items.size) { items[it].score }
+            s.sortDescending()
+            threshold = s[pruneRank - 1]
+            thresholdStale = false
+        }
+        return threshold
+    }
+
+    /** Whether [offer] would store [word] at [score]. */
+    fun accepts(word: String, score: Float): Boolean {
+        var min = Float.MAX_VALUE
+        for (c in items) {
+            if (c.word == word) return score > c.score
+            if (c.score < min) min = c.score
+        }
+        return items.size < cap || score > min
     }
 
     fun offer(c: WordCandidate) {
+        thresholdStale = true
         for (i in items.indices) {
             if (items[i].word == c.word) {
                 if (c.score > items[i].score) items[i] = c

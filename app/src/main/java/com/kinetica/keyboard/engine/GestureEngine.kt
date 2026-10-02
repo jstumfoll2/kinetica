@@ -28,6 +28,30 @@ class GestureEngine(private val listener: Listener) {
         fun onAllPointersUp()
     }
 
+    /**
+     * Sees the raw input of every pointer this engine tracks, for the trace
+     * recorder: a decode can only be replayed exactly from the samples the
+     * streams were built from, never from the tokens (which keep contacts,
+     * not the path). Null outside the developer build, so the shipping cost is
+     * one null check per event. Main thread, like every other call here.
+     */
+    interface Observer {
+        fun onGeometry(g: KeyboardGeometry, tapMaxDispPx: Float)
+
+        /** An accepted down: the pointer now has a stream. */
+        fun onDown(pointerId: Int, streamId: StreamId, xPx: Float, yPx: Float, t: Long)
+
+        fun onMove(pointerId: Int, xPx: Float, yPx: Float, t: Long)
+
+        /** Fired before [Listener.onTokenFinalized] with the token this lift produced. */
+        fun onUp(pointerId: Int, xPx: Float, yPx: Float, t: Long, token: InputToken)
+
+        /** The stream was dropped without a token. */
+        fun onCancel(pointerId: Int)
+    }
+
+    var observer: Observer? = null
+
     var maxPointers: Int = 1
 
     private var geometry: KeyboardGeometry? = null
@@ -38,6 +62,7 @@ class GestureEngine(private val listener: Listener) {
     fun setGeometry(g: KeyboardGeometry, tapMaxDispPx: Float) {
         geometry = g
         tapDispKw = tapMaxDispPx / g.keyWidthPx
+        observer?.onGeometry(g, tapMaxDispPx)
     }
 
     private fun activeCount(): Int =
@@ -66,12 +91,14 @@ class GestureEngine(private val listener: Listener) {
             streamId, pointerId, g, tapDispKw, xPx, yPx, t, code,
         ) { keyCode -> listener.onKeyTransition(streamId, keyCode) }
         slotByPointer[pointerId] = slot
+        observer?.onDown(pointerId, streamId, xPx, yPx, t)
         return true
     }
 
     fun onPointerMove(pointerId: Int, xPx: Float, yPx: Float, t: Long) {
         val stream = streamFor(pointerId) ?: return
         stream.addPoint(xPx, yPx, t)
+        observer?.onMove(pointerId, xPx, yPx, t)
     }
 
     fun onPointerUp(pointerId: Int, xPx: Float, yPx: Float, t: Long) {
@@ -79,15 +106,23 @@ class GestureEngine(private val listener: Listener) {
         stream.addPoint(xPx, yPx, t)
         val token = stream.finish(t)
         release(pointerId)
+        observer?.onUp(pointerId, xPx, yPx, t, token)
         listener.onTokenFinalized(token)
         if (activeCount() == 0) listener.onAllPointersUp()
     }
 
     fun cancelPointer(pointerId: Int) {
-        if (streamFor(pointerId) != null) release(pointerId)
+        if (streamFor(pointerId) != null) {
+            release(pointerId)
+            observer?.onCancel(pointerId)
+        }
     }
 
     fun cancelAll() {
+        observer?.let { o ->
+            streams[0]?.let { o.onCancel(it.pointerId) }
+            streams[1]?.let { o.onCancel(it.pointerId) }
+        }
         streams[0] = null
         streams[1] = null
         java.util.Arrays.fill(slotByPointer, -1)

@@ -46,6 +46,34 @@ class WordComposer(
         )
     }
 
+    /**
+     * Sees each buffer as it ends, for the trace recorder: the tokens that were
+     * decoded, the context they were decoded against, the last candidate list
+     * the bar received for them, and the word that was committed (null when the
+     * buffer was abandoned). Null outside the developer build. Main thread.
+     */
+    interface Observer {
+        /**
+         * [shownFor] is how many tokens the decode behind [shown] saw: fewer than
+         * [tokens] means the word was committed before its last decode landed.
+         * Also called with an empty buffer (a commit of text no gesture made), so
+         * per-word state the observer holds is reset every word.
+         */
+        fun onBufferEnd(
+            tokens: List<InputToken>,
+            context: List<String>,
+            shown: List<WordCandidate>,
+            shownFor: Int,
+            committed: String?,
+        )
+    }
+
+    var observer: Observer? = null
+
+    // The last delivered list and its token count, kept only while observed.
+    private var shown: List<WordCandidate> = emptyList()
+    private var shownFor = 0
+
     private val tokens = ArrayList<InputToken>()
     private val context = ArrayDeque<String>()
     private val generation = AtomicInteger()
@@ -133,6 +161,7 @@ class WordComposer(
     /** Word committed to the editor: becomes bigram context, buffer resets. */
     fun commitWord(word: String) {
         if (DecodeTrace.enabled) traceCommitMiss(word)
+        endBuffer(word)
         previousBuffer = if (tokens.isEmpty()) previousBuffer else ArrayList(tokens)
         context.addLast(word)
         while (context.size > 2) context.removeFirst()
@@ -201,6 +230,7 @@ class WordComposer(
         // Kept for the commit-time miss line: this is the buffer a retype is about to
         // replace, and the retyped word is its label.
         if (tokens.isNotEmpty()) previousBuffer = ArrayList(tokens)
+        endBuffer(null)
         tokens.clear()
         generation.incrementAndGet()
     }
@@ -212,6 +242,15 @@ class WordComposer(
     }
 
     fun contextSnapshot(): List<String> = context.toList()
+
+    private fun endBuffer(committed: String?) {
+        val o = observer
+        if (o != null) {
+            o.onBufferEnd(ArrayList(tokens), context.toList(), shown, shownFor, committed)
+        }
+        shown = emptyList()
+        shownFor = 0
+    }
 
     private fun requestDecode() {
         val snapshot = ArrayList(tokens)
@@ -282,6 +321,10 @@ class WordComposer(
             }
             mainExecutor.execute {
                 if (request.generation == generation.get()) {
+                    if (observer != null) {
+                        shown = merged.candidates
+                        shownFor = request.tokens.size
+                    }
                     callbacks.onCandidates(
                         merged.candidates, merged.tentative,
                         request.literal, request.generation,

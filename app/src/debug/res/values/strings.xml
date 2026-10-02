@@ -19,6 +19,16 @@
     <string name="trace_export_failed">Export failed</string>
     <string name="trace_cleared">Trace cleared</string>
 
+    <string name="trace_words_recording">Recording word traces (replayable)</string>
+    <string name="trace_words_explain">Word traces keep every touch sample of each word together with the word that was committed, so the decoder can be replayed and measured off the device. They are off until switched on here, except in practice mode, which records while it is open. Private fields and fields that ask for no learning are never recorded. Nothing leaves the device unless you export it.</string>
+    <string name="trace_words_export">Export word traces</string>
+    <string name="trace_words_clear">Clear word traces</string>
+    <string name="practice_open">Practice mode</string>
+    <string name="practice_title">Kinetica DEV practice</string>
+    <string name="practice_explain">Swipe or tap the word shown with the Kinetica DEV keyboard, then space, three times per word. Each attempt is recorded with the shown word as its label, for measuring the decoder. If you know an attempt went wrong, tap Discard last swipe and do it again. Recording stops when you leave this screen.</string>
+    <string name="practice_progress">Attempt %1$d of %2$d · %3$d recorded, %4$d decoded as shown</string>
+    <string name="practice_discard">Discard last swipe</string>
+
     <plurals name="trace_stats">
         <item quantity="one">%1$d line, %2$s</item>
         <item quantity="other">%1$d lines, %2$s</item>

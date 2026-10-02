@@ -1,0 +1,53 @@
+// Compiles the pure-Kotlin engine (main + the debug-only trace package) and the
+// replay harness straight from app/src, then runs it. Usage: see README.md.
+plugins {
+    id 'org.jetbrains.kotlin.jvm' version '1.9.24'
+    id 'application'
+}
+
+def app = file('../../app/src')
+def eng = 'com/kinetica/keyboard/engine'
+
+sourceSets {
+    main {
+        kotlin {
+            srcDir "$app/main/java"
+            srcDir "$app/debug/java"
+            include "$eng/**"
+        }
+    }
+    test {
+        kotlin {
+            srcDir "$app/test/java"
+            srcDir "$app/testDebug/java"
+            include "$eng/**"
+            // Imports ime.suggestionZoneWords from KineticaIME.kt, which is Android.
+            exclude "$eng/CompletionTest.kt"
+        }
+    }
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+kotlin { compilerOptions { jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17 } }
+
+dependencies { testImplementation 'junit:junit:4.13.2' }
+
+test {
+    // Tests read src/main/assets relative to app/, as under the Android build.
+    workingDir = file('../../app')
+    maxHeapSize = '4g'
+    testLogging { events 'failed', 'skipped'; exceptionFormat 'full' }
+}
+
+// The harness lives in the test source set (it uses the test fixtures and must
+// never ship), so the CLI runs on the test runtime classpath.
+tasks.register('replay', JavaExec) {
+    description = 'Replay v1 trace files: ./gradlew -p tools/replay replay --args="replay FILE.jsonl"'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.kinetica.keyboard.engine.trace.ReplayCli'
+    workingDir = rootProject.file('../..')
+    maxHeapSize = '4g'
+}

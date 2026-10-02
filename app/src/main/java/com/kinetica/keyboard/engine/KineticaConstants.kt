@@ -182,6 +182,25 @@ object KineticaConstants {
     // value changes.
     const val TOP_K = 10
 
+    /**
+     * Whether two-thumb overlapped input is decoded on one timeline
+     * ([Interleave]). Measured end to end on the developer's practice traces
+     * (replay harness, 2026-10-02): words with two swipes overlapping in time
+     * went from 38.7% to 77.4% top-1 on the tuning batch and from 51.4% to
+     * 80.0% on the held-out batch; all words 55.3% to 66.8% and 61.3% to
+     * 74.2%. Single-swipe words are untouched (the reading needs two swipes).
+     */
+    const val INTERLEAVE_ENABLED = true
+
+    /** Interleaved hits kept by fit and frequency before bigram and personal boosts rerank them. */
+    const val INTERLEAVE_KEEP = 60
+
+    /**
+     * Interleaved scores times this compete with cut-and-merge scores word by
+     * word. 0.5 was best of 0.3/0.5/1/2 on the tuning batch and held out.
+     */
+    const val INTERLEAVE_WEIGHT = 0.5f
+
     // Ideal-path length band relative to the observed arc length L:
     // accepted words satisfy 0.5*L - 1 <= idealLen <= 1.5*L + 1 (kw).
     const val LEN_BAND_LO = 0.5f

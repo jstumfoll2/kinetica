@@ -69,7 +69,18 @@ data class WordCandidate(
      * captured row has to close by hand.
      */
     val personalBigram: Float = 1f,
+    /**
+     * Which letters each swipe piece spelled; only filled when the predictor
+     * has a [com.kinetica.keyboard.engine.CandidateReranker], which needs it to
+     * score pieces separately. Null in the shipping decode.
+     */
+    val segmentation: Segmentation? = null,
 ) {
+    /** [letters] are the trie's folded codes; each piece spells `letters[from until to]`. */
+    class Segmentation(val letters: IntArray, val pieces: List<Piece>)
+
+    class Piece(val resampled: FloatArray, val from: Int, val to: Int)
+
     enum class Source {
         EXACT_TAP, SWIPE, MERGED, FUZZY_TAP,
 
