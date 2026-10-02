@@ -139,7 +139,7 @@ class CtcRerankTest {
         assumeTrue(dict != null)
         val (trie, forms, bigrams) = dict!!
         val r = CtcReranker(scorer(), { g }, beta = 0.3f)
-        val p = WordPredictor(trie, bigrams, g, forms, reranker = r, rerankDepth = 30)
+        val p = WordPredictor(trie, bigrams, g, forms, reranker = r, rerankDepth = 30, interleave = false)
         val left = TestData.sloppySwipe("hel", g, 1000, 300, 0.3f, StreamId.LEFT)
         val right = TestData.swipe("lo", g, 1200, 200, StreamId.RIGHT)
         val out = p.decode(listOf(left, right), emptyList())

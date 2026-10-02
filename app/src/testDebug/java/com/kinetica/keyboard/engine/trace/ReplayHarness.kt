@@ -45,6 +45,9 @@ class ReplayHarness(
     private val ctc: CtcScorer? = null,
     val beta: Float = 0f,
     private val rerankDepth: Int = DEFAULT_DEEP_K,
+    /** Interleaved two-thumb reading: off, or on at this weight (null = engine default). */
+    private val interleave: Boolean = com.kinetica.keyboard.engine.KineticaConstants.INTERLEAVE_ENABLED,
+    private val interleaveWeight: Float = com.kinetica.keyboard.engine.KineticaConstants.INTERLEAVE_WEIGHT,
 ) {
     private class Dict(val d: LoadedDictionary, val bigrams: BigramTable)
 
@@ -64,6 +67,9 @@ class ReplayHarness(
         Dict(d, b)
     }
 
+    /** The bundled trie for [lang], as replay loads it. */
+    fun trieFor(lang: String, british: Boolean): com.kinetica.keyboard.engine.Trie = dict(lang, british).d.trie
+
     private fun predictor(
         lang: String,
         british: Boolean,
@@ -77,6 +83,7 @@ class ReplayHarness(
         return WordPredictor(
             d.d.trie, d.bigrams, g, d.d.forms, language = lang, topK = topK,
             reranker = r, rerankDepth = rerankDepth,
+            interleave = interleave, interleaveWeight = interleaveWeight,
         )
     }
 

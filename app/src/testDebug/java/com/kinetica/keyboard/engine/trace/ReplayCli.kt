@@ -34,10 +34,30 @@ object ReplayCli {
                 val ctc = opt(a, "--ctc")?.let { f -> File(f).inputStream().use { CtcScorer.load(it) } }
                 val beta = opt(a, "--beta")?.toFloat() ?: 0f
                 val depth = opt(a, "--depth")?.toInt() ?: ReplayHarness.DEFAULT_DEEP_K
+                val ilw = opt(a, "--ilw")?.toFloat()
                 if (a.isEmpty()) usage()
-                val report = run(ReplayHarness(assets, k, ctc, beta, depth), a.map { File(it) })
+                val harness = if (ilw == null) {
+                    ReplayHarness(assets, k, ctc, beta, depth)
+                } else {
+                    ReplayHarness(assets, k, ctc, beta, depth, interleave = ilw > 0f, interleaveWeight = ilw)
+                }
+                val report = run(harness, a.map { File(it) })
                 println(report.format())
                 if (ctc == null && report.exact < report.comparable) System.exit(1)
+            }
+            "misses" -> {
+                if (a.isEmpty()) usage()
+                val h = ReplayHarness(assets)
+                val sink = ReplayReport(h.deepK)
+                for (f in a.map { File(it) }) for ((n, w) in read(f, sink)) {
+                    val r = try { h.replay(w) } catch (e: RuntimeException) { continue }
+                    if (r.rank == 1) continue
+                    println(describe(n, r))
+                }
+            }
+            "interleave" -> {
+                if (a.isEmpty()) usage()
+                println(interleaveReport(assets, a.map { File(it) }))
             }
             "tune" -> {
                 val ctc = File(opt(a, "--ctc") ?: usage()).inputStream().use { CtcScorer.load(it) }
@@ -104,6 +124,88 @@ object ReplayCli {
         }
         return words
     }
+
+    /**
+     * One line per miss: label, shipping and deep rank, buckets, the top three,
+     * then each token in time order - T for a tap (key), S for a swipe (its key
+     * contacts, arc length) - with stream, start and end relative to the first.
+     */
+    fun describe(lineNo: Int, r: ReplayHarness.Result): String {
+        val sb = StringBuilder()
+        sb.append("#$lineNo ${r.word.label} rank=${r.rank} deep=${r.deepRank} ${r.buckets.joinToString(",")}")
+        sb.append(" top=").append(r.shipping.take(3).joinToString("/") { it.word })
+        val t0 = r.tokens.minOfOrNull { it.tStart } ?: 0L
+        for (t in r.tokens.sortedBy { it.tStart }) {
+            val s = if (t.streamId == com.kinetica.keyboard.engine.models.StreamId.LEFT) "L" else "R"
+            sb.append("\n    ")
+            when (t) {
+                is com.kinetica.keyboard.engine.models.TapToken ->
+                    sb.append("T$s ${com.kinetica.keyboard.engine.Alphabet.charOf(t.code)}")
+                is com.kinetica.keyboard.engine.models.SwipeToken -> {
+                    sb.append("S$s ")
+                    t.keyContacts.forEach { sb.append(com.kinetica.keyboard.engine.Alphabet.charOf(it.code)) }
+                    sb.append(String.format(java.util.Locale.ROOT, " arc=%.1f dwells=%d", t.arcLen, t.dwells.size))
+                }
+            }
+            sb.append(" ${t.tStart - t0}..${t.tEnd - t0}ms")
+        }
+        return sb.toString()
+    }
+
+    /**
+     * The interleaved two-thumb reading on its own: for every line it applies
+     * to, the label's rank among [com.kinetica.keyboard.engine.InterleavedSearch]
+     * hits under several geometric scales, next to the shipping rank.
+     */
+    fun interleaveReport(assets: File, files: List<File>): String {
+        val h = ReplayHarness(assets)
+        val sink = ReplayReport(h.deepK)
+        val scales = listOf(1f, 2f, 3f, 5f, 8f, 12f)
+        val top1 = IntArray(scales.size)
+        val top3 = IntArray(scales.size)
+        val any = IntArray(1)
+        var n = 0
+        var ship1 = 0
+        var ship3 = 0
+        var maxMs = 0L
+        val times = ArrayList<Long>()
+        val sb = StringBuilder()
+        for (f in files) for ((lineNo, w) in read(f, sink)) {
+            val label = w.label?.lowercase() ?: continue
+            val tokens = SwipeTrace.replayTokens(w)
+            val g = w.geometry.build()
+            val il = com.kinetica.keyboard.engine.Interleave.of(tokens, g) ?: continue
+            val trie = h.trieFor(w.config.language, w.config.britishSpelling)
+            val t0 = System.nanoTime()
+            val search = com.kinetica.keyboard.engine.InterleavedSearch(trie, il)
+            val hits = search.run(400)
+            val ms = (System.nanoTime() - t0) / 1_000_000
+            times.add(ms)
+            if (ms > maxMs) maxMs = ms
+            val r = h.replay(w)
+            n++
+            if (r.rank == 1) ship1++
+            if (r.rank in 1..3) ship3++
+            if (hits.any { it.word == label }) any[0]++
+            val ranks = scales.map { sc ->
+                val sorted = hits.sortedByDescending { it.fw * kotlin.math.exp(-sc * it.cost * it.cost) }
+                sorted.indexOfFirst { it.word == label } + 1
+            }
+            for ((i, rk) in ranks.withIndex()) {
+                if (rk == 1) top1[i]++
+                if (rk in 1..3) top3[i]++
+            }
+            val best = hits.sortedByDescending { it.fw * kotlin.math.exp(-3f * it.cost * it.cost) }.take(3)
+            sb.appendLine("#$lineNo $label ship=${r.rank} il=${ranks.joinToString("/")} nodes=${search.visited} ${ms}ms top=${best.joinToString("/") { it.word + String.format(java.util.Locale.ROOT, ":%.2f", it.cost) }}")
+        }
+        times.sort()
+        sb.appendLine("lines=$n shipping top1=${pct(ship1, n)} top3=${pct(ship3, n)}; label among hits ${pct(any[0], n)}")
+        for ((i, sc) in scales.withIndex()) sb.appendLine("  scale $sc: top1=${pct(top1[i], n)} top3=${pct(top3[i], n)}")
+        if (times.isNotEmpty()) sb.appendLine("search ms on this JVM: p50 ${times[times.size / 2]} p95 ${times[(times.size * 95) / 100]} max $maxMs")
+        return sb.toString()
+    }
+
+    private fun pct(a: Int, n: Int) = String.format(java.util.Locale.ROOT, "%.1f%%", 100.0 * a / maxOf(n, 1))
 
     /** Beta chosen on the tuning half, then one comparison on the held-out half. */
     fun tune(assets: File, ctc: CtcScorer, betas: List<Float>, depth: Int, files: List<File>): String {

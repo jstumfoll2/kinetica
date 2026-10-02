@@ -57,6 +57,13 @@ class WordPredictor(
      * reorder; the list is cut back to [topK] after it. Ignored without one.
      */
     private val rerankDepth: Int = topK,
+    /**
+     * Read two-thumb overlapped input on one timeline ([Interleave]) instead of
+     * as cut-and-merged pieces. Off reproduces the pre-interleave decoder.
+     */
+    private val interleave: Boolean = KineticaConstants.INTERLEAVE_ENABLED,
+    /** Scale of interleaved scores against cut-and-merge ones; see [withInterleaved]. */
+    private val interleaveWeight: Float = KineticaConstants.INTERLEAVE_WEIGHT,
 ) {
     private val dtw = DtwMatcher()
     private val heapDepth = if (reranker != null) maxOf(topK, rerankDepth) else topK
@@ -131,6 +138,54 @@ class WordPredictor(
     fun isLivePrefix(s: String): Boolean =
         s.isNotEmpty() && trie.prefixNode(AccentFolder.fold(s.lowercase())) != -1
 
+    /**
+     * Both readings of two-thumb input in one list: each word keeps the better
+     * of its cut-and-merge score and its interleaved score times
+     * [interleaveWeight], which puts the two geometric models on one scale. A
+     * word only the cut-and-merge search reaches (a tap made early on purpose,
+     * say) keeps its place.
+     */
+    private fun withInterleaved(il: List<WordCandidate>, rest: List<WordCandidate>): List<WordCandidate> {
+        val best = LinkedHashMap<String, WordCandidate>()
+        for (c in rest) best[c.word] = c
+        for (c in il) {
+            val w = c.copy(score = c.score * interleaveWeight)
+            val have = best[c.word]
+            if (have == null || w.score > have.score) best[c.word] = w
+        }
+        return best.values.sortedByDescending { it.score }.take(topK)
+    }
+
+    /**
+     * Two-thumb overlapped input: the best interleaved readings, scored as
+     * `fw * geometric(cost) * bigram * personal`, one model for the whole list.
+     */
+    private fun interleaved(il: Interleave, prevWordId: Int): List<WordCandidate> {
+        val search = InterleavedSearch(trie, il)
+        val hits = search.run(KineticaConstants.INTERLEAVE_KEEP)
+        val out = ArrayList<WordCandidate>(hits.size)
+        for (h in hits) {
+            val geo = InterleavedSearch.geometric(h.cost)
+            val bm = bigrams.multiplier(prevWordId, h.node)
+            val variants = forms[h.node]
+            if (variants == null) {
+                val pb = personalBoost(h.word)
+                out.add(WordCandidate(h.word, h.fw * geo * bm * pb, h.cost, h.fw, bm, h.node, WordCandidate.Source.MERGED, language, pb))
+            } else {
+                for (v in variants) {
+                    val fwV = KineticaConstants.FREQ_WEIGHT_FLOOR +
+                        (1f - KineticaConstants.FREQ_WEIGHT_FLOOR) * v.freqByte / 255f
+                    val pb = personalBoost(v.display)
+                    out.add(WordCandidate(v.display, fwV * geo * bm * pb, h.cost, fwV, bm, h.node, WordCandidate.Source.MERGED, language, pb))
+                }
+            }
+        }
+        val seen = HashSet<String>()
+        val ranked = out.sortedByDescending { it.score }.filter { seen.add(it.word) }.take(topK)
+        DecodeTrace.log { "interleave$langTag: nodes=${search.visited} " + ranked.take(5).joinToString(" ") { "${it.word}:${(it.dtwDistance * 100).toInt() / 100f}" } }
+        return ranked
+    }
+
     /** [context] = last committed words, oldest first (window of 2). */
     fun decode(tokens: List<InputToken>, context: List<String>): List<WordCandidate> {
         val g = geometry ?: return emptyList()
@@ -138,6 +193,9 @@ class WordPredictor(
         DecodeTrace.log { "decode in$langTag: " + tokens.sortedBy { it.tStart }.joinToString(" ") { traceToken(it) } + " ctx=$context" }
         val prevWord = context.lastOrNull()?.let { AccentFolder.fold(it.lowercase()) }
         val prevWordId = prevWord?.let { trie.nodeFor(it) } ?: -1
+
+        val il = if (interleave) Interleave.of(tokens, g) else null
+        val ilHits = if (il != null) interleaved(il, prevWordId) else emptyList()
 
         val heap = CandidateHeap(heapDepth, pruneRank = topK)
         val seqs = MergeAlternatives.sequences(tokens, dtw)
@@ -206,7 +264,8 @@ class WordPredictor(
             }
         }
         val searched = heap.sortedByScoreDesc()
-        val out = if (reranker == null) searched else reranker.rerank(tokens, searched).take(topK)
+        val reranked = if (reranker == null) searched else reranker.rerank(tokens, searched).take(topK)
+        val out = if (ilHits.isEmpty()) reranked else withInterleaved(ilHits, reranked)
         // Full score components per candidate: rank upsets are usually decided
         // by fw/boost arithmetic, not geometry, and d alone cannot show that.
         // Every factor of score = fw * geometricTerm(d) * bm * pb * ck is printed, so
