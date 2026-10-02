@@ -76,8 +76,9 @@ object ReplayCli {
     }
 
     /**
-     * Word lines of [f] with their line numbers, correction lines applied: a
-     * correction relabels the most recent earlier word committed as its `from`.
+     * Word lines of [f] with their line numbers, correction and discard lines
+     * applied: a correction relabels the most recent earlier word committed as
+     * its `from`, a discard drops the most recent earlier word.
      */
     fun read(f: File, report: ReplayReport): List<Pair<Int, SwipeTrace.Word>> {
         val words = ArrayList<Pair<Int, SwipeTrace.Word>>()
@@ -87,6 +88,7 @@ object ReplayCli {
                 try {
                     when (val l = SwipeTrace.decodeLine(line)) {
                         is SwipeTrace.Line.WordLine -> words.add(i + 1 to l.word)
+                        is SwipeTrace.Line.Discard -> words.removeLastOrNull()
                         is SwipeTrace.Line.Correction -> {
                             val k = words.indexOfLast { it.second.committed.equals(l.from, ignoreCase = true) }
                             if (k >= 0) {

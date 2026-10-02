@@ -182,6 +182,11 @@ object TraceRecorder {
             engine.observer = r
         }
 
+        /** Withdraws the most recent word line (the practice screen's "bad swipe"). */
+        fun discardLast() {
+            if (lines > 0) append(SwipeTrace.encodeDiscard())
+        }
+
         private fun append(line: String) {
             val f = file ?: return
             synchronized(lock) {

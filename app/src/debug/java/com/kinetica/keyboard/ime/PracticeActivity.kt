@@ -5,6 +5,7 @@ import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
 import android.view.inputmethod.EditorInfo
+import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -23,6 +24,10 @@ import java.util.Random
  * line's `target`. Words are drawn from the bundled English list, weighted toward
  * the buckets the replay report splits on (short words, double letters, long words).
  *
+ * Each prompt is asked [REPEATS] times, since one attempt says little about how a
+ * word is usually drawn, and "Discard last" withdraws an attempt the person knows
+ * went wrong (a discard line in the trace) and asks for it again.
+ *
  * Recording runs only while this screen is in front, whatever the trace toggle
  * says: opening practice is the consent. Personal data is the same as any word
  * trace - the typed words - but here the words were chosen by the app.
@@ -36,6 +41,11 @@ class PracticeActivity : AppCompatActivity() {
     private var words: List<String> = emptyList()
     private var done = 0
     private var hits = 0
+
+    // Attempts made at the current prompt, and whether the last one hit it.
+    private var attempt = 0
+    private var lastHit = false
+    private var lastCounted = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -63,13 +73,20 @@ class PracticeActivity : AppCompatActivity() {
                         val typed = text.trim()
                         if (typed.isNotEmpty()) {
                             done++
-                            if (typed.equals(prompt.text.toString(), ignoreCase = true)) hits++
+                            lastHit = typed.equals(prompt.text.toString(), ignoreCase = true)
+                            if (lastHit) hits++
+                            lastCounted = true
                             s.clear()
-                            next()
+                            attempt++
+                            if (attempt >= REPEATS) next() else showProgress()
                         }
                     }
                 }
             })
+        }
+        val discard = Button(this).apply {
+            text = getString(R.string.practice_discard)
+            setOnClickListener { discardLast() }
         }
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -77,6 +94,7 @@ class PracticeActivity : AppCompatActivity() {
             addView(prompt)
             addView(input)
             addView(progress)
+            addView(discard)
             addView(explain)
         }
         setContentView(column)
@@ -96,8 +114,29 @@ class PracticeActivity : AppCompatActivity() {
     private fun next() {
         val w = if (words.isEmpty()) "hello" else pick()
         prompt.text = w
+        attempt = 0
         TraceRecorder.words.practiceTarget = w
-        progress.text = getString(R.string.practice_progress, done, hits)
+        showProgress()
+    }
+
+    private fun showProgress() {
+        progress.text = getString(R.string.practice_progress, attempt + 1, REPEATS, done, hits)
+    }
+
+    /**
+     * Withdraws the last recorded attempt. Within a prompt it is asked again; on
+     * the first attempt of a new prompt it withdraws the previous prompt's last
+     * attempt, and the new prompt stays.
+     */
+    private fun discardLast() {
+        if (!lastCounted) return
+        TraceRecorder.words.discardLast()
+        done--
+        if (lastHit) hits--
+        lastCounted = false
+        if (attempt > 0) attempt--
+        input.text.clear()
+        showProgress()
     }
 
     /** One in four short, one in four with a double letter, the rest any length. */
@@ -122,6 +161,9 @@ class PracticeActivity : AppCompatActivity() {
     }
 
     private companion object {
+        /** Attempts per prompt. */
+        const val REPEATS = 3
+
         /** The most frequent words only: a prompt nobody would type teaches nothing. */
         const val PROMPT_POOL = 5000
     }

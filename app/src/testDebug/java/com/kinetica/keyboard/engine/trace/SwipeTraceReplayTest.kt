@@ -119,6 +119,22 @@ class SwipeTraceReplayTest {
         }
     }
 
+    @Test
+    fun discardDropsTheLastAttempt() {
+        assumeTrue(haveAssets("en"))
+        val lines = ArrayList<String>()
+        SyntheticSession(assets).record(listOf("them", "hello", "world"), "en", null) { lines.add(it) }
+        val f = File.createTempFile("trace", ".jsonl")
+        try {
+            val discard = SwipeTrace.encodeDiscard()
+            f.writeText(listOf(lines[0], lines[1], discard, lines[2]).joinToString("\n"))
+            val words = ReplayCli.read(f, ReplayReport(ReplayHarness.DEFAULT_DEEP_K)).map { it.second }
+            assertEquals(listOf("them", "world"), words.map { it.label })
+        } finally {
+            f.delete()
+        }
+    }
+
     private fun replayAll(lines: List<String>): ReplayReport {
         val h = ReplayHarness(assets)
         val r = ReplayReport(h.deepK)

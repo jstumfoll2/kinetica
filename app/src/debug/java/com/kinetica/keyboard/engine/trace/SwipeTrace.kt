@@ -55,6 +55,10 @@ import com.kinetica.keyboard.engine.models.WordCandidate
  * pick from the correction strip after a commit: the most recent word line
  * whose `word` is `from` was really meant as `to`.
  *
+ * A third, `{"v":1,"type":"discard"}`, withdraws the most recent word line: the
+ * practice screen writes it when the person says their last attempt was a bad
+ * swipe, so a sloppy attempt never becomes a labelled example.
+ *
  * Personal data: every line carries what was typed, so a trace file is
  * personal by construction and never belongs in the repository. What is
  * deliberately absent is the personal dictionary state itself; `cfg.personal`
@@ -226,20 +230,29 @@ object SwipeTrace {
         JsonWriter().beginObject().key("v").value(VERSION).key("type").value("correction")
             .key("from").value(from).key("to").value(to).endObject().toString()
 
-    /** A line of either type: a [Word], or a correction as (from, to). */
+    fun encodeDiscard(): String =
+        JsonWriter().beginObject().key("v").value(VERSION).key("type").value("discard").endObject().toString()
+
+    /** A line of any type: a [Word], a correction as (from, to), or a discard. */
     sealed class Line {
         data class WordLine(val word: Word) : Line()
         data class Correction(val from: String, val to: String) : Line()
+        object Discard : Line()
     }
 
     @Suppress("UNCHECKED_CAST")
     fun decodeLine(line: String): Line {
         val o = Json.parse(line) as Map<String, Any?>
-        return if (o["type"] == "correction") {
-            require((o["v"] as JsonNum).toInt() == VERSION) { "unsupported trace version ${o["v"]}" }
-            Line.Correction(o["from"] as String, o["to"] as String)
-        } else {
-            Line.WordLine(decode(o))
+        return when (o["type"]) {
+            "correction" -> {
+                require((o["v"] as JsonNum).toInt() == VERSION) { "unsupported trace version ${o["v"]}" }
+                Line.Correction(o["from"] as String, o["to"] as String)
+            }
+            "discard" -> {
+                require((o["v"] as JsonNum).toInt() == VERSION) { "unsupported trace version ${o["v"]}" }
+                Line.Discard
+            }
+            else -> Line.WordLine(decode(o))
         }
     }
 
