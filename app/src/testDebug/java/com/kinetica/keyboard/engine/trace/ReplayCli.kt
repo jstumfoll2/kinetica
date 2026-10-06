@@ -55,6 +55,20 @@ object ReplayCli {
                     println(describe(n, r))
                 }
             }
+            "trace" -> {
+                // trace FILE N [N...]: replay those lines with DecodeTrace on.
+                if (a.size < 2) usage()
+                val h = ReplayHarness(assets)
+                val want = a.drop(1).map { it.toInt() }.toSet()
+                for ((n, w) in read(File(a[0]), ReplayReport(h.deepK))) {
+                    if (n !in want) continue
+                    println("=== line $n")
+                    com.kinetica.keyboard.engine.DecodeTrace.sink = { println("  $it") }
+                    val r = try { h.replay(w) } catch (e: RuntimeException) { println("  failed: $e"); null }
+                    com.kinetica.keyboard.engine.DecodeTrace.sink = null
+                    if (r != null) println(describe(n, r))
+                }
+            }
             "interleave" -> {
                 if (a.isEmpty()) usage()
                 println(interleaveReport(assets, a.map { File(it) }))

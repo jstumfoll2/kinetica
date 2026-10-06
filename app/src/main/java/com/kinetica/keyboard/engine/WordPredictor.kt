@@ -1691,7 +1691,8 @@ class WordPredictor(
                 val closesStrict = m.isEnd(code) || (m.softEnd && pass >= 0)
                 val closes = closesStrict || (rescue && pass >= 0)
                 val k = keep * startKeep
-                val closeKeep = if (closesStrict) k else k * KineticaConstants.RESCUE_GATE_KEEP
+                val closeKeep = (if (closesStrict) k else k * KineticaConstants.RESCUE_GATE_KEEP) *
+                    KineticaConstants.shortReadingKeep(len2, m.letterArcLen)
                 // Lower band reads letterArcLen, not arcLen: on a softStart
                 // piece the lead-in travel is not evidence that more letters
                 // were spelled (Matcher.buildSegment).
