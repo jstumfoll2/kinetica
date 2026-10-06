@@ -20,10 +20,9 @@ import java.io.IOException
  * The developer build's only screen: what the decode trace has recorded, and how to
  * get it off the device.
  *
- * Declared in the debug manifest alone, so nothing about it merges into a release
- * build. Export goes through the storage-access framework, the same route the
- * personal-dictionary export already uses - no file provider, no new permission, and
- * the file lands wherever the developer picks rather than somewhere they have to hunt.
+ * Declared in the debug manifest alone, so nothing about it merges into a release build. Export
+ * goes through the storage-access framework, like the personal-dictionary export: no file
+ * provider, no new permission, and the file lands wherever the user picks.
  */
 class TraceActivity : AppCompatActivity() {
 
@@ -55,7 +54,7 @@ class TraceActivity : AppCompatActivity() {
             setOnCheckedChangeListener { _, on -> TraceRecorder.recording = on }
         }
 
-        // Said plainly rather than buried: this build writes down what is typed on it.
+        // Shown on the screen itself: this build writes down what is typed on it.
         val explain = TextView(this).apply {
             text = getString(R.string.trace_explain)
             textSize = 13f
