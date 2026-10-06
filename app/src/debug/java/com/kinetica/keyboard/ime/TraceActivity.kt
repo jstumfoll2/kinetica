@@ -4,6 +4,8 @@ import android.net.Uri
 import android.os.Bundle
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -27,6 +29,7 @@ class TraceActivity : AppCompatActivity() {
 
     private lateinit var stats: TextView
     private lateinit var wordStats: TextView
+    private lateinit var neuralStats: TextView
 
     private val createWordExport =
         registerForActivityResult(ActivityResultContracts.CreateDocument("application/x-ndjson")) { uri ->
@@ -102,6 +105,43 @@ class TraceActivity : AppCompatActivity() {
             }
         }
 
+        // The neural rerank, for testing it on the phone: off is today's decoder.
+        NeuralRerank.useSettings(this)
+        neuralStats = TextView(this).apply { textSize = 15f }
+        val neuralToggle = SwitchCompat(this).apply {
+            text = getString(R.string.neural_toggle)
+            textSize = 16f
+            isChecked = NeuralRerank.enabled
+            isEnabled = NeuralRerank.modelAvailable(this@TraceActivity)
+            setOnCheckedChangeListener { _, on ->
+                NeuralRerank.enabled = on
+                refresh()
+            }
+        }
+        val betaRow = RadioGroup(this).apply {
+            orientation = RadioGroup.HORIZONTAL
+            val current = NeuralRerank.beta
+            for (b in NeuralRerank.BETAS) {
+                addView(RadioButton(this@TraceActivity).apply {
+                    id = android.view.View.generateViewId()
+                    text = b.toString()
+                    isChecked = b == current
+                    setOnClickListener {
+                        NeuralRerank.beta = b
+                        refresh()
+                    }
+                })
+            }
+        }
+        val betaLabel = TextView(this).apply {
+            text = getString(R.string.neural_beta)
+            textSize = 13f
+        }
+        val neuralExplain = TextView(this).apply {
+            text = getString(R.string.neural_explain)
+            textSize = 13f
+        }
+
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(pad)
@@ -116,6 +156,11 @@ class TraceActivity : AppCompatActivity() {
             addView(wordClear)
             addView(practice)
             addView(wordExplain)
+            addView(neuralToggle)
+            addView(neuralStats)
+            addView(betaLabel)
+            addView(betaRow)
+            addView(neuralExplain)
         }
         setContentView(ScrollView(this).apply { addView(column) })
     }
@@ -148,6 +193,19 @@ class TraceActivity : AppCompatActivity() {
                 readableSize(wordBytes),
             )
         }
+        refreshNeural()
+    }
+
+    private fun refreshNeural() {
+        val state = when {
+            !NeuralRerank.modelAvailable(this) -> getString(R.string.neural_missing)
+            NeuralRerank.enabled -> getString(R.string.neural_on, NeuralRerank.MODEL_NAME, NeuralRerank.beta.toString())
+            else -> getString(R.string.neural_off)
+        }
+        val timing = NeuralRerank.rerankStats()?.let { (p50, p95, n) ->
+            "\n" + getString(R.string.neural_timing, "%.1f".format(p50), "%.1f".format(p95), n)
+        } ?: ""
+        neuralStats.text = state + timing
     }
 
     private fun export(uri: Uri) = write(uri, TraceRecorder.readAll())
