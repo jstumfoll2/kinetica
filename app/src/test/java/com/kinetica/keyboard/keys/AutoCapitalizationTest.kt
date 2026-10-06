@@ -48,4 +48,14 @@ class AutoCapitalizationTest {
             assertEquals("$c changed", c.toString(), AutoCapitalization.forWord(c.toString(), "en"))
         }
     }
+
+    @Test
+    fun thePronounsContractionsAreCapitalizedInEnglishOnly() {
+        for (w in listOf("i'm", "i'll", "i'd", "i've")) {
+            assertEquals("I" + w.substring(1), AutoCapitalization.forWord(w, "en"))
+            assertEquals(w, AutoCapitalization.forWord(w, "it"))
+        }
+        assertEquals("I\u2019m", AutoCapitalization.forWord("i\u2019m", "en"))
+        assertEquals("it's", AutoCapitalization.forWord("it's", "en"))
+    }
 }

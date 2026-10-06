@@ -109,12 +109,12 @@ class ReplayHarness(
         val active = predictor(cfg.language, cfg.britishSpelling, g, KineticaConstants.TOP_K, rerank = true)
         val alt = cfg.alternate?.let { predictor(it, cfg.britishSpelling, g, KineticaConstants.TOP_K, rerank = true) }
         val t0 = System.nanoTime()
-        val shipping = composerDecode(active, alt, tokens, w.context)
+        val shipping = composerDecode(active, alt, tokens, w.context, w.apostropheMark)
         val micros = (System.nanoTime() - t0) / 1000
 
         val deepActive = predictor(cfg.language, cfg.britishSpelling, g, deepK)
         val deepAlt = cfg.alternate?.let { predictor(it, cfg.britishSpelling, g, deepK) }
-        val deep = deepDecode(deepActive, deepAlt, tokens, w.context)
+        val deep = deepDecode(deepActive, deepAlt, tokens, w.context, w.apostropheMark)
 
         val label = w.label?.lowercase()
         val exact = if (w.comparable) sameList(shipping, w.shown.candidates) else null
@@ -132,6 +132,7 @@ class ReplayHarness(
         alt: WordPredictor?,
         tokens: List<InputToken>,
         context: List<String>,
+        apostrophe: Boolean,
     ): List<WordCandidate> {
         var out: List<WordCandidate> = emptyList()
         val direct = Executor { it.run() }
@@ -145,6 +146,7 @@ class ReplayHarness(
         })
         c.alternatePredictor = alt
         for (w in context) c.commitWord(w)
+        if (apostrophe) c.markApostrophe()
         c.seed(tokens)
         return out
     }
@@ -159,10 +161,11 @@ class ReplayHarness(
         alt: WordPredictor?,
         tokens: List<InputToken>,
         context: List<String>,
+        apostrophe: Boolean,
     ): List<WordCandidate> {
-        val a = active.decode(tokens, context)
+        val a = active.decode(tokens, context, apostrophe)
         if (alt == null) return a
-        val foreign = alt.decode(tokens, context).filter { !active.isWord(it.word) }
+        val foreign = alt.decode(tokens, context, apostrophe).filter { !active.isWord(it.word) }
         val seen = HashSet<String>()
         return (a + foreign).sortedByDescending { it.score }.filter { seen.add(it.word) }.take(deepK)
     }

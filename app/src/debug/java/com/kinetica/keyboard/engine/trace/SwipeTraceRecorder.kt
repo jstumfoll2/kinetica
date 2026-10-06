@@ -82,6 +82,7 @@ class SwipeTraceRecorder(
         shown: List<WordCandidate>,
         shownFor: Int,
         committed: String?,
+        apostropheMark: Boolean,
     ) {
         val how = if (committed != null) nextHow else null
         nextHow = null
@@ -110,6 +111,7 @@ class SwipeTraceRecorder(
         val word = SwipeTrace.Word(
             config(), g, context, out,
             SwipeTrace.Shown(shownFor, SwipeTrace.candidates(shown)), committed, how, target(),
+            apostropheMark,
         )
         sink(SwipeTrace.encode(word))
     }

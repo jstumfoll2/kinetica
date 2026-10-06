@@ -186,8 +186,70 @@ class WordPredictor(
         return ranked
     }
 
-    /** [context] = last committed words, oldest first (window of 2). */
-    fun decode(input: List<InputToken>, context: List<String>): List<WordCandidate> {
+    /**
+     * [context] = last committed words, oldest first (window of 2). [apostrophe] says the
+     * apostrophe key was tapped during this word; a swipe that went out to that key marks
+     * itself (SwipeToken.apostrophe). Either one prefers apostrophe spellings.
+     */
+    fun decode(
+        input: List<InputToken>,
+        context: List<String>,
+        apostrophe: Boolean = false,
+    ): List<WordCandidate> {
+        val ranked = decodeLetters(input, context)
+        if (!apostrophe && input.none { it is SwipeToken && it.apostrophe }) return ranked
+        val prevWord = context.lastOrNull()?.let { AccentFolder.fold(it.lowercase()) }
+        val out = preferApostrophe(ranked, prevWord?.let { trie.nodeFor(it) } ?: -1)
+        DecodeTrace.log { "apostrophe$langTag: " + out.take(5).joinToString(" ") { it.word } }
+        return out
+    }
+
+    /**
+     * The list re-ranked for a word marked as wanting an apostrophe.
+     *
+     * The search is apostrophe-transparent (a dictionary apostrophe costs no path), so the
+     * letters "were" already reach "we're" - the mark only has to say which spelling wins.
+     * Each reading without one keeps [KineticaConstants.APOSTROPHE_MISS_KEEP] of its score,
+     * and also offers its own apostrophe spellings ("well" -> "we'll", "cant" -> "can't")
+     * with the same geometry and context terms and the variant's own frequency, because the
+     * shipping list may have cut a rare contraction its plain twin outranked.
+     */
+    private fun preferApostrophe(list: List<WordCandidate>, prevWordId: Int): List<WordCandidate> {
+        val best = LinkedHashMap<String, WordCandidate>()
+        fun offer(c: WordCandidate) {
+            val have = best[c.word]
+            if (have == null || c.score > have.score) best[c.word] = c
+        }
+        for (c in list) {
+            if (c.word.indexOf('\'') >= 0) {
+                offer(c)
+                continue
+            }
+            offer(c.copy(score = c.score * KineticaConstants.APOSTROPHE_MISS_KEEP))
+            val base = c.word.lowercase()
+            MarkedContractions.of(language, base)?.let { offer(c.copy(word = it, segmentation = null)) }
+            if (c.frequencyWeight <= 0f || c.bigramMultiplier <= 0f) continue
+            for (i in 1..base.length) {
+                val spelled = base.substring(0, i) + "'" + base.substring(i)
+                val node = trie.nodeFor(AccentFolder.fold(spelled))
+                if (node == -1 || !trie.isWord(node)) continue
+                val form = forms[node]?.maxByOrNull { it.freqByte }
+                val display = form?.display ?: spelled
+                val fw = KineticaConstants.FREQ_WEIGHT_FLOOR +
+                    (1f - KineticaConstants.FREQ_WEIGHT_FLOOR) * (form?.freqByte ?: trie.frequency(node)) / 255f
+                // Same geometry and personal terms; the variant's own frequency, and its own
+                // bigram only as far as the plain word earned one (the boost's fade with the
+                // fit already happened there).
+                val bmRaw = bigrams.multiplier(prevWordId, node)
+                val bm = if (c.bigramMultiplier > 1f) bmRaw else 1f
+                val score = c.score / (c.frequencyWeight * c.bigramMultiplier) * fw * bm
+                offer(c.copy(word = display, score = score, frequencyWeight = fw, bigramMultiplier = bm, wordId = node, segmentation = null))
+            }
+        }
+        return best.values.sortedByDescending { it.score }.take(topK)
+    }
+
+    private fun decodeLetters(input: List<InputToken>, context: List<String>): List<WordCandidate> {
         val g = geometry ?: return emptyList()
         // Two thumbs the touchscreen briefly merged into one contact, split back.
         val tokens = ContactRepair.repair(input)

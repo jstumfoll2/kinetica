@@ -33,7 +33,8 @@ import com.kinetica.keyboard.engine.models.WordCandidate
  *  - `geom`: key width in px, the stream-split midline in px, the tap
  *    displacement bound in px, and each letter's rect in kw (left, top, right,
  *    bottom). Stored in kw because that is what the engine uses; see
- *    [KeyboardGeometry.fromKw].
+ *    [KeyboardGeometry.fromKw]. The main-page apostrophe key, when the board has
+ *    one, is the key `'`; older traces simply lack it.
  *  - `ctx`: the composer's context, oldest first, lowercased.
  *  - `tokens`: the buffer in insertion order. `src:"ev"` is a gesture as its
  *    samples: `s` the stream the engine assigned, `ev` rows of [x px, y px,
@@ -43,6 +44,8 @@ import com.kinetica.keyboard.engine.models.WordCandidate
  *  - `shown`: the last candidate list the bar received, `n` the token count
  *    its decode saw and `c` rows of [word, score, language]. `n` short of the
  *    buffer means the word was committed before its final decode landed.
+ *  - `apos`: true when the apostrophe key was tapped while this word was being
+ *    swiped (WordComposer.markApostrophe). Absent on older lines, read as false.
  *  - `word`: what was committed, or null for an abandoned buffer. `how`: how it
  *    was committed, when the recorder's owner knows (null otherwise):
  *    "picked" (from the bar), "tentative" (a decode a delimiter committed),
@@ -79,7 +82,7 @@ object SwipeTrace {
         val keyWidthPx: Float,
         val midlinePx: Float,
         val tapMaxDispPx: Float,
-        /** Letter code to (left, top, right, bottom) in kw. */
+        /** Letter code to (left, top, right, bottom) in kw; [Alphabet.APOSTROPHE] for that key. */
         val keys: Map<Int, FloatArray>,
     ) {
         fun build(): KeyboardGeometry {
@@ -98,6 +101,9 @@ object SwipeTrace {
             fun of(g: KeyboardGeometry, tapMaxDispPx: Float): Geometry {
                 val keys = LinkedHashMap<Int, FloatArray>()
                 for (code in 0 until Alphabet.LETTERS) g.rectKw(code)?.let { keys[code] = it }
+                // Written as the key "'" and only when the layout has one, so a trace from a
+                // board without the key reads back exactly as before.
+                g.apostropheRectKw()?.let { keys[Alphabet.APOSTROPHE] = it }
                 return Geometry(g.keyWidthPx, g.midlinePx, tapMaxDispPx, keys)
             }
         }
@@ -127,6 +133,7 @@ object SwipeTrace {
         val committed: String?,
         val how: String? = null,
         val target: String? = null,
+        val apostropheMark: Boolean = false,
     ) {
         /** What the user meant: the practice prompt when there was one, else the commit. */
         val label: String? get() = target ?: committed
@@ -182,7 +189,7 @@ object SwipeTrace {
         t is TapToken -> t.copy(streamId = s)
         t is SwipeToken -> SwipeToken(
             s, t.rawPath, t.resampled, t.keyContacts, t.arcLen, t.tStart, t.tEnd,
-            t.softStart, t.softEnd, t.dwells,
+            t.softStart, t.softEnd, t.dwells, t.apostrophe,
         )
         else -> t
     }
@@ -220,6 +227,7 @@ object SwipeTrace {
         j.key("shown").beginObject().key("n").value(w.shown.tokenCount).key("c").beginArray()
         for (c in w.shown.candidates) j.beginArray().value(c.word).value(c.score).value(c.language).endArray()
         j.endArray().endObject()
+        if (w.apostropheMark) j.key("apos").value(true)
         j.key("word").value(w.committed)
         j.key("how").value(w.how)
         j.key("target").value(w.target)
@@ -284,6 +292,7 @@ object SwipeTrace {
                     j.endArray().key("dwells").beginArray()
                     for (d in k.dwells) j.beginArray().value(d.enterIdx).value(d.exitIdx).value(d.tEnter).value(d.tExit).endArray()
                     j.endArray()
+                    if (k.apostrophe) j.key("apos").value(true)
                 }
             }
         }
@@ -320,6 +329,7 @@ object SwipeTrace {
         return Word(
             cfg, geom, (o["ctx"] as List<Any?>).map { it as String }, tokens, shown,
             o["word"] as String?, o["how"] as String?, o["target"] as String?,
+            apostropheMark = o["apos"] == true,
         )
     }
 
@@ -339,6 +349,7 @@ object SwipeTrace {
                     (m["contacts"] as List<Any?>).map { val r = it as List<Any?>; KeyContact(Alphabet.codeOf((r[0] as String)[0]), l(r[1]), l(r[2])) },
                     f(m["arc"]), l(m["t0"]), l(m["t1"]), m["softStart"] as Boolean, m["softEnd"] as Boolean,
                     (m["dwells"] as List<Any?>).map { val r = it as List<Any?>; Dwell(i(r[0]), i(r[1]), l(r[2]), l(r[3])) },
+                    apostrophe = m["apos"] == true,
                 ),
             )
             else -> error("unknown token source ${m["src"]}")

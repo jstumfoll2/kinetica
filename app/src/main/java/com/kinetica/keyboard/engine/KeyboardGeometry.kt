@@ -25,7 +25,18 @@ class KeyboardGeometry private constructor(
     private val centersX: FloatArray,        // [26] kw
     private val centersY: FloatArray,        // [26] kw
     private val rects: FloatArray,           // [26*4] kw: left, top, right, bottom
+    /**
+     * The main-page apostrophe key's rect in kw (left, top, right, bottom), or null when
+     * the layout has none. Not a letter: [keyAt] and [nearestKey] never return it and no
+     * pointer starts a stream on it. Its one reader is [GestureStream.finish], which
+     * looks for a swipe that went out to it and came back mid-word (see
+     * [ApostropheExcursion]).
+     */
+    private val apostrophe: FloatArray? = null,
 ) {
+    /** A copy of the apostrophe key's kw rect, or null; see [apostrophe]. */
+    fun apostropheRectKw(): FloatArray? = apostrophe?.copyOf()
+
     fun hasKey(code: Int): Boolean = code in 0 until Alphabet.LETTERS && present[code]
 
     fun centerX(code: Int): Float = centersX[code]
@@ -90,7 +101,8 @@ class KeyboardGeometry private constructor(
         /**
          * Builds geometry from pixel-space letter-key rects. Each entry is
          * (code, leftPx, topPx, rightPx, bottomPx). [keyWidthPx] is the width
-         * of a standard letter key and defines the kw unit.
+         * of a standard letter key and defines the kw unit. An entry with code
+         * [Alphabet.APOSTROPHE] is the apostrophe key, kept apart from the letters.
          */
         fun fromPx(
             keyWidthPx: Float,
@@ -123,8 +135,13 @@ class KeyboardGeometry private constructor(
             val cx = FloatArray(Alphabet.LETTERS)
             val cy = FloatArray(Alphabet.LETTERS)
             val rects = FloatArray(Alphabet.LETTERS * 4)
+            var apostrophe: FloatArray? = null
             for (i in codes.indices) {
                 val code = codes[i]
+                if (code == Alphabet.APOSTROPHE) {
+                    apostrophe = letterRectsKw[i].copyOf()
+                    continue
+                }
                 if (code !in 0 until Alphabet.LETTERS) continue
                 val r = letterRectsKw[i]
                 val base = code * 4
@@ -136,7 +153,7 @@ class KeyboardGeometry private constructor(
                 cy[code] = (rects[base + 1] + rects[base + 3]) / 2f
                 present[code] = true
             }
-            return KeyboardGeometry(keyWidthPx, midlinePx, present, cx, cy, rects)
+            return KeyboardGeometry(keyWidthPx, midlinePx, present, cx, cy, rects, apostrophe)
         }
     }
 }

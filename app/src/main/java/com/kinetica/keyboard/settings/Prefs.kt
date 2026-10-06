@@ -456,7 +456,7 @@ object Prefs {
     const val DEFAULT_DOUBLE_SPACE_PERIOD = false
     const val DEFAULT_LEARN_PHRASES = false
     const val DEFAULT_ENTER_ALTERNATES = "? ! ,"
-    const val DEFAULT_APOSTROPHE_KEY = false
+    const val DEFAULT_APOSTROPHE_KEY = true
     const val DEFAULT_COMMA_MODE = "keep"
     const val DEFAULT_COMMA_CUSTOM = ""
     const val DEFAULT_PERIOD_MODE = "keep"

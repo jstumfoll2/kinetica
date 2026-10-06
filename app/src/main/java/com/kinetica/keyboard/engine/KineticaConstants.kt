@@ -183,6 +183,15 @@ object KineticaConstants {
     const val TOP_K = 10
 
     /**
+     * What a reading WITHOUT an apostrophe keeps of its score when the word was marked as
+     * wanting one: the swipe went out to the apostrophe key, or that key was tapped while
+     * the word was being swiped (WordPredictor.preferApostrophe). Low enough that "we're"
+     * at its corpus frequency clears "were" at 3x its frequency; not zero, so a mark on a
+     * word with no apostrophe spelling leaves the list in its old order.
+     */
+    const val APOSTROPHE_MISS_KEEP = 0.1f
+
+    /**
      * Whether two-thumb overlapped input is decoded on one timeline
      * ([Interleave]). Measured end to end on the developer's practice traces
      * (replay harness, 2026-10-02): words with two swipes overlapping in time

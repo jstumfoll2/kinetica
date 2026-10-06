@@ -30,6 +30,11 @@ object AutoCapitalization {
      * cases - the second one still becomes "I", which is the accepted cost of
      * the rule and matches what every other keyboard does.
      */
-    fun forWord(word: String, lang: String): String =
-        if (lang == "en" && word.length == 1 && (word[0] == 'i' || word[0] == 'I')) "I" else word
+    fun forWord(word: String, lang: String): String = when {
+        lang != "en" || word.isEmpty() || (word[0] != 'i' && word[0] != 'I') -> word
+        word.length == 1 -> "I"
+        // The pronoun's contractions: "i'm", "i'll", "i'd", "i've".
+        word[1] == '\'' || word[1] == '\u2019' -> "I" + word.substring(1)
+        else -> word
+    }
 }

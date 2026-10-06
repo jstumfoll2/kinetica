@@ -53,8 +53,12 @@ object LayoutMutations {
      * Nintype-style) CHAR key at the right of the home row, so "'" is reachable
      * by a single tap without the symbols layer or a long-press - the writing
      * path for elided/contracted words in any language (e.g. "nell'immagine",
-     * "don't"). It is a non-letter key, so it stays invisible to the swipe
-     * engine geometry (only a-z keys participate). The home row nudges left by
+     * "don't"). It is not a letter to the swipe engine: no stream starts on it
+     * and no reading spells it. Its rect does ride along in the engine geometry,
+     * so a swipe that ends on it, or goes out to it and back, marks the word as
+     * wanting an apostrophe (ApostropheExcursion), and a tap on it while a word
+     * is being swiped does the same (KineticaIME.markApostrophe). On by default
+     * in this fork. The home row nudges left by
      * [APOSTROPHE_HOME_ROW_SHIFT] so the key sits apart from "L". Applied in the
      * alpha-layout chain only; idempotent (the appended key guards re-entry, so
      * the nudge is never doubled).

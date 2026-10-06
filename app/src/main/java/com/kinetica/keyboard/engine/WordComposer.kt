@@ -65,6 +65,7 @@ class WordComposer(
             shown: List<WordCandidate>,
             shownFor: Int,
             committed: String?,
+            apostropheMark: Boolean = false,
         )
     }
 
@@ -98,6 +99,7 @@ class WordComposer(
         val generation: Int,
         val literal: String,
         val alternate: WordPredictor?,
+        val apostrophe: Boolean,
     )
 
     private val decodeLock = Any()
@@ -141,6 +143,20 @@ class WordComposer(
     fun onToken(token: InputToken) {
         tokens.add(token)
         requestDecode()
+    }
+
+    /**
+     * The apostrophe key was tapped while this word was being swiped: the word wants its
+     * apostrophe spelling ("we're", not "were"). Held until the buffer ends, so a tap
+     * from the other thumb before this word's first token lands still counts.
+     */
+    var apostropheMarked: Boolean = false
+        private set
+
+    fun markApostrophe() {
+        if (apostropheMarked) return
+        apostropheMarked = true
+        if (tokens.isNotEmpty()) requestDecode()
     }
 
     /**
@@ -246,8 +262,9 @@ class WordComposer(
     private fun endBuffer(committed: String?) {
         val o = observer
         if (o != null) {
-            o.onBufferEnd(ArrayList(tokens), context.toList(), shown, shownFor, committed)
+            o.onBufferEnd(ArrayList(tokens), context.toList(), shown, shownFor, committed, apostropheMarked)
         }
+        apostropheMarked = false
         shown = emptyList()
         shownFor = 0
     }
@@ -260,6 +277,7 @@ class WordComposer(
             generation = generation.incrementAndGet(),
             literal = buildLiteral(snapshot),
             alternate = alternatePredictor,
+            apostrophe = apostropheMarked,
         )
         val scheduleWorker = synchronized(decodeLock) {
             pendingDecode = request
@@ -291,7 +309,7 @@ class WordComposer(
             // queued worker starts. Do not spend any dictionary work on it.
             if (request.generation != generation.get()) continue
 
-            val active = predictor.decode(request.tokens, request.context)
+            val active = predictor.decode(request.tokens, request.context, request.apostrophe)
             // Auto-detect can double decode cost. If input advanced during the
             // active-language pass, skip the obsolete second-language pass and
             // immediately drain the newest snapshot instead.
@@ -303,7 +321,7 @@ class WordComposer(
             // never found and was learned into Polish. What keeps autocorrect sound
             // is tapLeadAllowed below and WordPredictor.tapAutocorrect.
             val merged = if (alternate != null) {
-                val other = alternate.decode(request.tokens, request.context)
+                val other = alternate.decode(request.tokens, request.context, request.apostrophe)
                 if (request.generation != generation.get()) continue
                 merge(active, other, tapOnly = request.literal.isNotEmpty()).also { m ->
                     DecodeTrace.log {
