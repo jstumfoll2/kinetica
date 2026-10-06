@@ -30,6 +30,9 @@ import com.kinetica.keyboard.engine.models.WordCandidate
  *    words were loaded) and `dictOverride` (a wordlist replaced the bundled
  *    one). With either flag set the bundled dictionaries cannot reproduce the
  *    live list, and the harness says so rather than counting a mismatch.
+ *    `rerank`, written only when the developer build's neural rerank was on
+ *    for the live decode: `{"beta":B,"model":NAME}`. Such a line is not
+ *    comparable either, since the replay's shipping run has no model.
  *  - `geom`: key width in px, the stream-split midline in px, the tap
  *    displacement bound in px, and each letter's rect in kw (left, top, right,
  *    bottom). Stored in kw because that is what the engine uses; see
@@ -50,6 +53,10 @@ import com.kinetica.keyboard.engine.models.WordCandidate
  *    literal as is).
  *  - `target`: in practice mode, the word the user was asked to type. It is
  *    the ground-truth label; `word` is what the keyboard made of it.
+ *  - `ab`, practice mode in the developer build only: the same buffer decoded
+ *    both ways when it ended, `beta` and `model` of the neural arm, `plain` and
+ *    `neural` the top rows of each as [word, score, language], and `plainMs`,
+ *    `neuralMs` each decode's wall time on the phone. Older lines lack it.
  *
  * A second line type, `{"v":1,"type":"correction","from":..,"to":..}`, records a
  * pick from the correction strip after a commit: the most recent word line
@@ -73,6 +80,9 @@ object SwipeTrace {
         val britishSpelling: Boolean = false,
         val personal: Boolean = false,
         val dictOverride: Boolean = false,
+        /** The live decode's neural rerank: 0 when off (the shipping decode). */
+        val rerankBeta: Float = 0f,
+        val rerankModel: String? = null,
     )
 
     data class Geometry(
@@ -118,6 +128,16 @@ object SwipeTrace {
 
     data class Candidate(val word: String, val score: Float, val language: String)
 
+    /** One buffer decoded without and with the neural rerank; see `ab` above. */
+    data class AB(
+        val beta: Float,
+        val model: String,
+        val plain: List<Candidate>,
+        val neural: List<Candidate>,
+        val plainMs: Float,
+        val neuralMs: Float,
+    )
+
     data class Word(
         val config: Config,
         val geometry: Geometry,
@@ -127,13 +147,15 @@ object SwipeTrace {
         val committed: String?,
         val how: String? = null,
         val target: String? = null,
+        val ab: AB? = null,
     ) {
         /** What the user meant: the practice prompt when there was one, else the commit. */
         val label: String? get() = target ?: committed
 
         /** Whether [shown] can be compared with a replay: same input, same dictionaries. */
         val comparable: Boolean
-            get() = !config.personal && !config.dictOverride && shown.tokenCount == tokens.size
+            get() = !config.personal && !config.dictOverride && config.rerankBeta == 0f &&
+                shown.tokenCount == tokens.size
     }
 
     fun candidates(list: List<WordCandidate>): List<Candidate> =
@@ -198,7 +220,11 @@ object SwipeTrace {
             .key("britishSpelling").value(w.config.britishSpelling)
             .key("personal").value(w.config.personal)
             .key("dictOverride").value(w.config.dictOverride)
-            .endObject()
+        if (w.config.rerankBeta != 0f) {
+            j.key("rerank").beginObject().key("beta").value(w.config.rerankBeta)
+                .key("model").value(w.config.rerankModel).endObject()
+        }
+        j.endObject()
         val g = w.geometry
         j.key("geom").beginObject()
             .key("kwPx").value(g.keyWidthPx)
@@ -217,12 +243,18 @@ object SwipeTrace {
         j.key("tokens").beginArray()
         for (t in w.tokens) writeToken(j, t)
         j.endArray()
-        j.key("shown").beginObject().key("n").value(w.shown.tokenCount).key("c").beginArray()
-        for (c in w.shown.candidates) j.beginArray().value(c.word).value(c.score).value(c.language).endArray()
-        j.endArray().endObject()
+        j.key("shown").beginObject().key("n").value(w.shown.tokenCount).key("c")
+        writeCandidates(j, w.shown.candidates)
+        j.endObject()
         j.key("word").value(w.committed)
         j.key("how").value(w.how)
         j.key("target").value(w.target)
+        w.ab?.let { ab ->
+            j.key("ab").beginObject().key("beta").value(ab.beta).key("model").value(ab.model)
+            writeCandidates(j.key("plain"), ab.plain)
+            writeCandidates(j.key("neural"), ab.neural)
+            j.key("plainMs").value(ab.plainMs).key("neuralMs").value(ab.neuralMs).endObject()
+        }
         return j.endObject().toString()
     }
 
@@ -254,6 +286,12 @@ object SwipeTrace {
             }
             else -> Line.WordLine(decode(o))
         }
+    }
+
+    private fun writeCandidates(j: JsonWriter, list: List<Candidate>) {
+        j.beginArray()
+        for (c in list) j.beginArray().value(c.word).value(c.score).value(c.language).endArray()
+        j.endArray()
     }
 
     private fun writeToken(j: JsonWriter, t: Token) {
@@ -301,9 +339,11 @@ object SwipeTrace {
         require((o["v"] as JsonNum).toInt() == VERSION) { "unsupported trace version ${o["v"]}" }
         require(o["type"] == "word") { "not a word line: ${o["type"]}" }
         val c = o["cfg"] as Map<String, Any?>
+        val rr = c["rerank"] as Map<String, Any?>?
         val cfg = Config(
             c["lang"] as String, c["alt"] as String?, c["britishSpelling"] as Boolean,
             c["personal"] as Boolean, c["dictOverride"] as Boolean,
+            rr?.let { f(it["beta"]) } ?: 0f, rr?.get("model") as String?,
         )
         val g = o["geom"] as Map<String, Any?>
         val keys = LinkedHashMap<Int, FloatArray>()
@@ -313,15 +353,22 @@ object SwipeTrace {
         val geom = Geometry(f(g["kwPx"]), f(g["midPx"]), f(g["tapPx"]), keys)
         val tokens = (o["tokens"] as List<Any?>).map { readToken(it as Map<String, Any?>) }
         val s = o["shown"] as Map<String, Any?>
-        val shown = Shown(
-            (s["n"] as JsonNum).toInt(),
-            (s["c"] as List<Any?>).map { val r = it as List<Any?>; Candidate(r[0] as String, f(r[1]), r[2] as String) },
-        )
+        val shown = Shown((s["n"] as JsonNum).toInt(), readCandidates(s["c"]))
+        val ab = (o["ab"] as Map<String, Any?>?)?.let { a ->
+            AB(
+                f(a["beta"]), a["model"] as String, readCandidates(a["plain"]), readCandidates(a["neural"]),
+                f(a["plainMs"]), f(a["neuralMs"]),
+            )
+        }
         return Word(
             cfg, geom, (o["ctx"] as List<Any?>).map { it as String }, tokens, shown,
-            o["word"] as String?, o["how"] as String?, o["target"] as String?,
+            o["word"] as String?, o["how"] as String?, o["target"] as String?, ab,
         )
     }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun readCandidates(v: Any?): List<Candidate> =
+        (v as List<Any?>).map { val r = it as List<Any?>; Candidate(r[0] as String, f(r[1]), r[2] as String) }
 
     @Suppress("UNCHECKED_CAST")
     private fun readToken(m: Map<String, Any?>): Token {

@@ -341,6 +341,12 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
                 suppressed = { editorState.teachesNothing },
             ),
         )
+        // The developer build's switchable neural rerank; the release stub has none.
+        // A switch on its screen rebuilds the predictors the way a dictionary change does.
+        NeuralRerank.install(this) {
+            loadDictionaryAsync()
+            applyViewConfig()
+        }
         engine.maxPointers = 2
         @Suppress("DEPRECATION")
         vibrator = getSystemService(VIBRATOR_SERVICE) as? Vibrator
@@ -408,6 +414,7 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
             PreferenceManager.getDefaultSharedPreferences(this)
                 .unregisterOnSharedPreferenceChangeListener(it)
         }
+        NeuralRerank.detach()
         cancelUserDictReload()
         mainHandler.removeCallbacks(spacebarNoticeRunnable)
         decodeExecutor.shutdown()
@@ -497,9 +504,12 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
                     blockedLoaded = blocked.isNotEmpty()
                     val pairs = pairMap(pairRows)
                     personalPairs = pairs
-                    val p = WordPredictor(
-                        dict.trie, bigrams, currentGeometry, dict.forms, counts, pairs, lang,
-                    )
+                    val p = NeuralRerank.primary { reranker, depth ->
+                        WordPredictor(
+                            dict.trie, bigrams, currentGeometry, dict.forms, counts, pairs, lang,
+                            reranker = reranker, rerankDepth = depth,
+                        )
+                    }
                     predictor = p
                     val altCounts = ConcurrentHashMap<String, Int>(altRows.size * 2)
                     for (row in altRows) altCounts[row.word] = row.frequency
@@ -812,6 +822,7 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
         val parts = ArrayList<String>(2)
         if (config.enabledLanguages.size > 1) parts.add(config.language.uppercase())
         if (config.peckMode) parts.add("TAP")
+        NeuralRerank.spacebarTag()?.let { parts.add(it) }
         return if (parts.isEmpty()) null else parts.joinToString(" · ")
     }
 

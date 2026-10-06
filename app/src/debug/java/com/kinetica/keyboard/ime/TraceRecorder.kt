@@ -56,8 +56,12 @@ object TraceRecorder {
         lines = countLines(f)
         words.install(context, File(dir, WORDS_NAME))
         DecodeTrace.sink = { m ->
-            Log.d("KineticaTrace", m)
-            append(m)
+            // A practice comparison re-decodes a finished buffer twice; its lines
+            // would read as live decodes, so they are dropped here.
+            if (!NeuralRerank.comparing.get()) {
+                Log.d("KineticaTrace", m)
+                append(m)
+            }
         }
     }
 
@@ -169,15 +173,18 @@ object TraceRecorder {
         internal fun attach(engine: GestureEngine, info: TraceInfo) {
             val r = SwipeTraceRecorder(
                 {
+                    val beta = NeuralRerank.liveBeta
                     SwipeTrace.Config(
                         info.language(), info.alternate(), info.britishSpelling(),
                         info.personal(), info.dictOverride(),
+                        beta, if (beta != 0f) NeuralRerank.MODEL_NAME else null,
                     )
                 },
                 ::append,
             )
             r.enabled = { (enabled || practiceTarget != null) && !info.suppressed() }
             r.target = { practiceTarget }
+            r.compare = NeuralRerank::compare
             recorder = r
             engine.observer = r
         }
