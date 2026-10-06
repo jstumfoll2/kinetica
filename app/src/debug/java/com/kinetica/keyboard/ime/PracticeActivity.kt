@@ -12,6 +12,7 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.setPadding
 import com.kinetica.keyboard.R
+import com.kinetica.keyboard.engine.trace.SwipeTrace
 import java.io.IOException
 import java.util.Random
 
@@ -28,6 +29,10 @@ import java.util.Random
  * word is usually drawn, and "Discard last" withdraws an attempt the person knows
  * went wrong (a discard line in the trace) and asks for it again.
  *
+ * Each recorded attempt is also decoded both without and with the neural rerank
+ * ([NeuralRerank.compare]), whichever one the keyboard is live on, and the
+ * running score of the two is shown under the prompt.
+ *
  * Recording runs only while this screen is in front, whatever the trace toggle
  * says: opening practice is the consent. Personal data is the same as any word
  * trace - the typed words - but here the words were chosen by the app.
@@ -37,6 +42,7 @@ class PracticeActivity : AppCompatActivity() {
     private lateinit var prompt: TextView
     private lateinit var progress: TextView
     private lateinit var input: EditText
+    private lateinit var versus: TextView
     private val rnd = Random()
     private var words: List<String> = emptyList()
     private var done = 0
@@ -47,6 +53,12 @@ class PracticeActivity : AppCompatActivity() {
     private var lastHit = false
     private var lastCounted = false
 
+    // The two decoders on this screen's attempts: compared, and how often each got the prompt.
+    private var compared = 0
+    private var plainHits = 0
+    private var neuralHits = 0
+    private var lastAb: Pair<Boolean, Boolean>? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         title = getString(R.string.practice_title)
@@ -55,6 +67,10 @@ class PracticeActivity : AppCompatActivity() {
 
         prompt = TextView(this).apply { textSize = 34f }
         progress = TextView(this).apply { textSize = 14f }
+        versus = TextView(this).apply {
+            textSize = 14f
+            text = getString(R.string.practice_ab_none)
+        }
         val explain = TextView(this).apply {
             text = getString(R.string.practice_explain)
             textSize = 13f
@@ -94,6 +110,7 @@ class PracticeActivity : AppCompatActivity() {
             addView(prompt)
             addView(input)
             addView(progress)
+            addView(versus)
             addView(discard)
             addView(explain)
         }
@@ -104,9 +121,11 @@ class PracticeActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         TraceRecorder.words.practiceTarget = prompt.text.toString().ifEmpty { null }
+        NeuralRerank.onCompare = { ab, target -> onCompared(ab, target) }
     }
 
     override fun onPause() {
+        NeuralRerank.onCompare = null
         TraceRecorder.words.practiceTarget = null
         super.onPause()
     }
@@ -123,6 +142,21 @@ class PracticeActivity : AppCompatActivity() {
         progress.text = getString(R.string.practice_progress, attempt + 1, REPEATS, done, hits)
     }
 
+    private fun onCompared(ab: SwipeTrace.AB, target: String) {
+        val plain = ab.plain.firstOrNull()?.word
+        val neural = ab.neural.firstOrNull()?.word
+        val hit = plain.equals(target, ignoreCase = true) to neural.equals(target, ignoreCase = true)
+        compared++
+        if (hit.first) plainHits++
+        if (hit.second) neuralHits++
+        lastAb = hit
+        versus.text = getString(R.string.practice_ab, plainHits, compared, neuralHits, compared) + "\n" +
+            getString(
+                R.string.practice_ab_last, plain ?: "-", "%.0f".format(ab.plainMs),
+                neural ?: "-", "%.0f".format(ab.neuralMs),
+            )
+    }
+
     /**
      * Withdraws the last recorded attempt. Within a prompt it is asked again; on
      * the first attempt of a new prompt it withdraws the previous prompt's last
@@ -133,6 +167,13 @@ class PracticeActivity : AppCompatActivity() {
         TraceRecorder.words.discardLast()
         done--
         if (lastHit) hits--
+        lastAb?.let { (p, n) ->
+            compared--
+            if (p) plainHits--
+            if (n) neuralHits--
+            versus.text = getString(R.string.practice_ab, plainHits, compared, neuralHits, compared)
+        }
+        lastAb = null
         lastCounted = false
         if (attempt > 0) attempt--
         input.text.clear()
