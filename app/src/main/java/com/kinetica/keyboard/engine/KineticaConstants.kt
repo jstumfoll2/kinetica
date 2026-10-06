@@ -575,6 +575,35 @@ object KineticaConstants {
      */
     const val UNCONTACTED_LETTER_KEEP = 0.85f
 
+    /**
+     * Score kept by a reading much shorter than the swipe it closes.
+     *
+     * A long swipe that crosses the board is evidence of a long word, but the
+     * geometric term saturates at [GEO_SATURATION_KW], so past it a short
+     * frequent word a whole key off the path scores like the long word drawn
+     * almost exactly. The developer's 2026-10-06 one-finger traces: "did" over
+     * "respond" (arc 18.9 kw; ideal paths 9.4 vs 18.3), "come" over "continue"
+     * (23.8 kw; 13.7 vs 23.5), "don" over "section", "hard" over "updates".
+     * The intended word's centre-to-centre length was 0.84-1.09 of the arc on
+     * every labelled swipe longer than 10 kw; the winners
+     * were 0.49-0.63.
+     *
+     * Keeps 1.0 while the reading's ideal length [idealKw] is at least
+     * [SHORT_READING_FRACTION] of the arc, then falls in proportion. Only on
+     * pieces longer than [SHORT_READING_ARC_KW]: on shorter swipes jitter and
+     * endpoint wiggle inflate the arc (correct words down to 0.48 of it - a
+     * slow 1.5 s "are" travelled 8.8 kw), so the ratio stops meaning anything.
+     * Leaves the score shape, and so every saturation golden, untouched.
+     */
+    fun shortReadingKeep(idealKw: Float, arcKw: Float): Float {
+        if (arcKw < SHORT_READING_ARC_KW) return 1f
+        val r = idealKw / (SHORT_READING_FRACTION * arcKw)
+        return if (r >= 1f) 1f else r
+    }
+
+    const val SHORT_READING_ARC_KW = 12f
+    const val SHORT_READING_FRACTION = 0.75f
+
     const val GEO_EXPONENT = 3.75f
     const val GEO_SATURATION_KW = 0.5f
 

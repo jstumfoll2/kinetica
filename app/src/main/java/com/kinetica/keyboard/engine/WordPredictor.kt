@@ -978,7 +978,7 @@ class WordPredictor(
                     pieceFrom[pieceCount] = segStartDepth
                     pieceTo[pieceCount] = depth + 1
                     pieceCount++
-                    dfs(child, nextTi, depth + 1, tapPen, keep)
+                    dfs(child, nextTi, depth + 1, tapPen, keep * KineticaConstants.shortReadingKeep(len2, m.letterArcLen))
                     pieceCount--
                 } else if (traced) {
                     when {
