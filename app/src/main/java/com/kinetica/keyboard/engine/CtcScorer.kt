@@ -246,7 +246,8 @@ class CtcReranker(
         var total = 0f
         var letters = 0
         for (p in seg.pieces) {
-            val labels = (p.from until p.to).map { seg.letters[it] }
+            val spelled = p.letters ?: seg.letters
+            val labels = (p.from until p.to).map { spelled[it] }
                 .filter { it == Alphabet.APOSTROPHE || g.hasKey(it) }
                 .map { CtcScorer.classOf(it) }.toIntArray()
             if (labels.isEmpty()) continue

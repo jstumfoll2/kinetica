@@ -163,9 +163,9 @@ class ReplayHarness(
         context: List<String>,
         apostrophe: Boolean,
     ): List<WordCandidate> {
-        val a = active.decode(tokens, context, apostrophe)
+        val a = active.decode(tokens, context, apostrophe = apostrophe)
         if (alt == null) return a
-        val foreign = alt.decode(tokens, context, apostrophe).filter { !active.isWord(it.word) }
+        val foreign = alt.decode(tokens, context, apostrophe = apostrophe).filter { !active.isWord(it.word) }
         val seen = HashSet<String>()
         return (a + foreign).sortedByDescending { it.score }.filter { seen.add(it.word) }.take(deepK)
     }

@@ -21,8 +21,12 @@ sourceSets {
             srcDir "$app/test/java"
             srcDir "$app/testDebug/java"
             include "$eng/**"
-            // Imports ime.suggestionZoneWords from KineticaIME.kt, which is Android.
+            // Import Android code (KineticaIME, the layout package, Prefs); the
+            // Android build runs them.
             exclude "$eng/CompletionTest.kt"
+            exclude "$eng/AlphabetTest.kt"
+            exclude "$eng/HomeRowSpreadProbe.kt"
+            exclude "$eng/NonLatinDictionaryTest.kt"
         }
     }
 }

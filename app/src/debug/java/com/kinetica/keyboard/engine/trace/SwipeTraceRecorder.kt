@@ -33,6 +33,12 @@ class SwipeTraceRecorder(
     /** Whether a finished buffer is written at all; read at each buffer end. */
     var enabled: () -> Boolean = { true }
 
+    /**
+     * The buffer decoded without and with the neural rerank, or null for none.
+     * Called with the buffer's tokens, context and target at each written line.
+     */
+    var compare: (List<InputToken>, List<String>, String?) -> SwipeTrace.AB? = { _, _, _ -> null }
+
     /** A correction-strip pick replaced the last commit [from] with [to]. */
     fun onCorrection(from: String, to: String) {
         if (enabled()) sink(SwipeTrace.encodeCorrection(from, to))
@@ -108,10 +114,11 @@ class SwipeTraceRecorder(
         // decode used cannot be replayed from one geometry; rare (a rotation
         // mid-word), and skipped rather than written wrong.
         if (geometryChanged) return
+        val goal = target()
         val word = SwipeTrace.Word(
             config(), g, context, out,
-            SwipeTrace.Shown(shownFor, SwipeTrace.candidates(shown)), committed, how, target(),
-            apostropheMark,
+            SwipeTrace.Shown(shownFor, SwipeTrace.candidates(shown)), committed, how, goal,
+            compare(tokens, context, goal), apostropheMark,
         )
         sink(SwipeTrace.encode(word))
     }

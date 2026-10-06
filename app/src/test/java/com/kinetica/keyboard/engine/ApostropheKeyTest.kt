@@ -134,7 +134,7 @@ class ApostropheKeyTest {
     private fun top(tokens: List<InputToken>, mark: Boolean = false): String {
         val p = english
         assumeTrue("wordlist asset not found", p != null)
-        return p!!.decode(tokens, emptyList(), mark).first().word
+        return p!!.decode(tokens, emptyList(), apostrophe = mark).first().word
     }
 
     @Test

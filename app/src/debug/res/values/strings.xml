@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
     <!--
-      Overrides for the developer build. The system keyboard picker is where the two
-      builds have to be told apart - that list shows ime_name, so a shared name there
-      would make switching between them guesswork.
+      Overrides for the developer build. The system keyboard picker lists ime_name, so the
+      two builds need different names there.
     -->
     <string name="app_name">Kinetica DEV</string>
     <string name="ime_name">Kinetica DEV Keyboard</string>
@@ -28,6 +27,17 @@
     <string name="practice_explain">Swipe or tap the word shown with the Kinetica DEV keyboard, then space, three times per word. Each attempt is recorded with the shown word as its label, for measuring the decoder. If you know an attempt went wrong, tap Discard last swipe and do it again. Recording stops when you leave this screen.</string>
     <string name="practice_progress">Attempt %1$d of %2$d · %3$d recorded, %4$d decoded as shown</string>
     <string name="practice_discard">Discard last swipe</string>
+
+    <string name="neural_toggle">Neural rerank (test)</string>
+    <string name="neural_beta">Rerank strength (beta)</string>
+    <string name="neural_on">On: model %1$s, beta %2$s. The spacebar shows NN while it is on.</string>
+    <string name="neural_off">Off: the keyboard decodes exactly as the normal build.</string>
+    <string name="neural_missing">The model is missing from this build, so the rerank cannot be switched on.</string>
+    <string name="neural_timing">Rerank on this phone: p50 %1$s ms, p95 %2$s ms over %3$d decodes</string>
+    <string name="neural_explain">Reorders the decoder\'s top 50 by how well a small swipe network, trained on FUTO\'s public swipe dataset, reads the path. It runs on this phone with no network. Practice mode always decodes each attempt both ways and shows which one got the word, whether this is on or off; each attempt\'s trace line keeps both answers.</string>
+    <string name="practice_ab">Today %1$d/%2$d · Neural %3$d/%4$d</string>
+    <string name="practice_ab_last">Last: today \"%1$s\" (%2$s ms) · neural \"%3$s\" (%4$s ms)</string>
+    <string name="practice_ab_none">Comparison unavailable until the keyboard has loaded its dictionary.</string>
 
     <plurals name="trace_stats">
         <item quantity="one">%1$d line, %2$s</item>
