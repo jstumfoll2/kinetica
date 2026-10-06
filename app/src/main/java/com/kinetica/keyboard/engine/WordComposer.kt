@@ -77,6 +77,7 @@ class WordComposer(
             shown: List<WordCandidate>,
             shownFor: Int,
             committed: String?,
+            apostropheMark: Boolean = false,
         )
     }
 
@@ -110,6 +111,7 @@ class WordComposer(
         val alternate: WordPredictor?,
         val extra: WordPredictor? = null,
         val weights: Map<String, Float>? = null,
+        val apostrophe: Boolean = false,
     )
 
     private val decodeLock = Any()
@@ -161,6 +163,20 @@ class WordComposer(
     val tokenCount: Int get() = tokens.size
 
     fun hasSwipeToken(): Boolean = tokens.any { it !is TapToken }
+
+    /**
+     * The apostrophe key was tapped while this word was being swiped: the word wants its
+     * apostrophe spelling ("we're", not "were"). Held until the buffer ends, so a tap
+     * from the other thumb before this word's first token lands still counts.
+     */
+    var apostropheMarked: Boolean = false
+        private set
+
+    fun markApostrophe() {
+        if (apostropheMarked) return
+        apostropheMarked = true
+        if (tokens.isNotEmpty()) requestDecode()
+    }
 
     fun onToken(token: InputToken) {
         tokens.add(token)
@@ -285,7 +301,7 @@ class WordComposer(
     private fun endBuffer(committed: String?) {
         val o = observer
         if (o != null) {
-            o.onBufferEnd(ArrayList(tokens), context.toList(), shown, shownFor, committed)
+            o.onBufferEnd(ArrayList(tokens), context.toList(), shown, shownFor, committed, apostropheMarked)
         }
         shown = emptyList()
         shownFor = 0
@@ -301,6 +317,7 @@ class WordComposer(
             alternate = alternatePredictor,
             extra = extraPredictor,
             weights = languageWeights,
+            apostrophe = apostropheMarked,
         )
         val scheduleWorker = synchronized(decodeLock) {
             pendingDecode = request
@@ -348,14 +365,14 @@ class WordComposer(
                         if (request.generation != generation.get()) {
                             null
                         } else {
-                            DecodeTrace.holding { alternate.decode(request.tokens, request.context, beam = false) }
+                            DecodeTrace.holding { alternate.decode(request.tokens, request.context, beam = false, apostrophe = request.apostrophe) }
                         }
                     },
                 )
             } else {
                 null
             }
-            val active = predictor.decode(request.tokens, request.context)
+            val active = predictor.decode(request.tokens, request.context, apostrophe = request.apostrophe)
             // If input advanced during the active-language pass, drop the second-language pass
             // and immediately drain the newest snapshot instead.
             if (request.generation != generation.get()) {
@@ -372,7 +389,7 @@ class WordComposer(
                     DecodeTrace.write(done.second)
                     done.first
                 } else {
-                    alternate.decode(request.tokens, request.context, beam = false)
+                    alternate.decode(request.tokens, request.context, beam = false, apostrophe = request.apostrophe)
                 }
                 if (request.generation != generation.get()) continue
                 merge(active, other, tapOnly = request.literal.isNotEmpty()).also { m ->
@@ -418,13 +435,13 @@ class WordComposer(
             return executor.submit(
                 Callable {
                     if (request.generation != generation.get()) null
-                    else DecodeTrace.holding { p.decode(request.tokens, request.context, beam = true) }
+                    else DecodeTrace.holding { p.decode(request.tokens, request.context, beam = true, apostrophe = request.apostrophe) }
                 },
             )
         }
         val second = besideOn(alternateExecutor, alternate)
         val third = besideOn(extraExecutor, request.extra)
-        val active = predictor.decode(request.tokens, request.context)
+        val active = predictor.decode(request.tokens, request.context, apostrophe = request.apostrophe)
         if (request.generation != generation.get()) {
             second?.cancel(false)
             third?.cancel(false)
@@ -437,7 +454,7 @@ class WordComposer(
             DecodeTrace.write(done.second)
             lists.add(done.first)
         } else {
-            lists.add(alternate.decode(request.tokens, request.context, beam = true))
+            lists.add(alternate.decode(request.tokens, request.context, beam = true, apostrophe = request.apostrophe))
         }
         if (third != null) {
             val done = awaitBeside(third) ?: return null

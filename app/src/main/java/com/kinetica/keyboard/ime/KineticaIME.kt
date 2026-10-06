@@ -1418,7 +1418,7 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
     private val keyboardListener = object : KeyboardView.Listener {
         override fun onKeyTap(key: Key) {
             when (key.type) {
-                KeyType.CHAR -> onPunctuation(key.output)
+                KeyType.CHAR -> if (!markApostrophe(key)) onPunctuation(key.output)
                 KeyType.SPACE -> onSpace()
                 KeyType.BACKSPACE -> onBackspace()
                 KeyType.ENTER -> onEnter()
@@ -2857,6 +2857,26 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
         return true
     }
 
+    /**
+     * A tap on the main-page apostrophe key while a word is being swiped marks that word
+     * as wanting its apostrophe spelling ("we're") instead of ending it, which is how
+     * Nintype reads it: one thumb swipes, the other taps ' mid-word. True when the tap was
+     * taken that way.
+     *
+     * Only for a word with a swipe in it, or while a thumb is down on the letters. A word
+     * typed by taps already sits in the editor letter by letter, so the apostrophe goes in
+     * as text where it was tapped, exactly as before.
+     */
+    private fun markApostrophe(key: Key): Boolean {
+        if (key.id != LayoutMutations.APOSTROPHE_KEY_ID || config.peckMode) return false
+        val comp = composer ?: return false
+        if (!comp.hasSwipeToken() && !engine.hasActivePointers()) return false
+        cancelAutospace()
+        comp.markApostrophe()
+        DecodeTrace.log { "  apostrophe mark" }
+        return true
+    }
+
     private fun onPunctuation(text: String) {
         if (text.length == 1 && consumeCtrl(text.lowercase())) return
         cancelAutospace()
@@ -3213,6 +3233,14 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
                 how = "autocorrect"
                 autocorrectUndo = AutocorrectUndo(typed, display, cursorExpected())
             }
+        }
+        // A word marked by a tap on the apostrophe key that has no apostrophe spelling
+        // ("dogs" swiped, then ') still gets the apostrophe the user tapped, at the end,
+        // where a tap after the word would have put it.
+        if (comp.apostropheMarked && finalWord.none { it == '\'' || it == '\u2019' }) {
+            val withApostrophe = "$finalWord'"
+            replaceTentative(withApostrophe)
+            finalWord = withApostrophe
         }
         // English's lone "i". Nothing upstream can reach it: letters are
         // committed one at a time before there is a word to look at, so the

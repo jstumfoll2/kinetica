@@ -85,4 +85,10 @@ class SwipeToken(
     val softStart: Boolean = false,
     val softEnd: Boolean = false,
     val dwells: List<Dwell> = emptyList(),
+    /**
+     * The gesture went out to the main-page apostrophe key and came back mid-word; the
+     * trip is already cut out of [rawPath] (see ApostropheExcursion). Read once per
+     * decode, off the tokens as they arrived, to prefer the apostrophe spelling.
+     */
+    val apostrophe: Boolean = false,
 ) : InputToken()

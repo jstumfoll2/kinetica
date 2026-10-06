@@ -518,7 +518,7 @@ object Prefs {
     const val DEFAULT_RECENT_WORDS = false
     const val DEFAULT_NUMBER_ROW = false
     const val DEFAULT_ENTER_ALTERNATES = "? ! ,"
-    const val DEFAULT_APOSTROPHE_KEY = false
+    const val DEFAULT_APOSTROPHE_KEY = true
     const val DEFAULT_COMMA_MODE = "keep"
     const val DEFAULT_COMMA_CUSTOM = ""
     const val DEFAULT_PERIOD_MODE = "keep"

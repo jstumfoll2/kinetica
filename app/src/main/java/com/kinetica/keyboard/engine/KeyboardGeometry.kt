@@ -26,7 +26,18 @@ class KeyboardGeometry private constructor(
     private val centersX: FloatArray,        // [letterCount] kw
     private val centersY: FloatArray,        // [letterCount] kw
     private val rects: FloatArray,           // [letterCount*4] kw: left, top, right, bottom
+    /**
+     * The main-page apostrophe key's rect in kw (left, top, right, bottom), or null when
+     * the layout has none. Not a letter: [keyAt] and [nearestKey] never return it and no
+     * pointer starts a stream on it. Its one reader is [GestureStream.finish], which
+     * looks for a swipe that went out to it and came back mid-word (see
+     * [ApostropheExcursion]).
+     */
+    private val apostrophe: FloatArray? = null,
 ) {
+    /** A copy of the apostrophe key's kw rect, or null; see [apostrophe]. */
+    fun apostropheRectKw(): FloatArray? = apostrophe?.copyOf()
+
     /** Letters this geometry can place: the alphabet's, keyed or not. */
     val letterCount: Int get() = alphabet.letterCount
 
@@ -130,8 +141,13 @@ class KeyboardGeometry private constructor(
             val cx = FloatArray(n)
             val cy = FloatArray(n)
             val rects = FloatArray(n * 4)
+            var apostrophe: FloatArray? = null
             for (i in codes.indices) {
                 val code = codes[i]
+                if (code == alphabet.apostrophe && code >= 0) {
+                    apostrophe = letterRectsKw[i].copyOf()
+                    continue
+                }
                 if (code !in 0 until n) continue
                 val r = letterRectsKw[i]
                 val base = code * 4
@@ -143,7 +159,7 @@ class KeyboardGeometry private constructor(
                 cy[code] = (rects[base + 1] + rects[base + 3]) / 2f
                 present[code] = true
             }
-            return KeyboardGeometry(keyWidthPx, midlinePx, alphabet, present, cx, cy, rects)
+            return KeyboardGeometry(keyWidthPx, midlinePx, alphabet, present, cx, cy, rects, apostrophe)
         }
     }
 }

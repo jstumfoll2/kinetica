@@ -508,7 +508,7 @@
     <string name="pref_enter_alternates_default" translatable="false">\? ! ,</string>
 
     <string name="pref_apostrophe_key_title">Apostrophe key</string>
-    <string name="pref_apostrophe_key_summary">Adds a narrow apostrophe key right of L, for writing contracted and elided words (don\'t, nell\'immagine) without the symbols layer</string>
+    <string name="pref_apostrophe_key_summary">Adds a narrow apostrophe key right of L, for writing contracted and elided words (don\'t, nell\'immagine) without the symbols layer. Swipe out to it and back mid-word, or tap it with the other thumb while swiping, to get we\'re instead of were.</string>
 
     <string name="edge_swipe_settings_title">Edge swipe shortcuts</string>
     <string name="pref_edge_swipes_summary">A quick swipe off a key types text, runs an action or presses Ctrl and a key</string>

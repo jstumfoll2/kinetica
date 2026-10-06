@@ -164,6 +164,17 @@ class GestureStream(
                 tStart = downTime, tEnd = t,
             )
         }
+        // A mid-word trip to the apostrophe key: decode the letters without it.
+        val cut = geometry.apostropheRectKw()?.let { ApostropheExcursion.find(points, it) }
+        if (cut != null) {
+            val c = ApostropheExcursion.apply(points, contacts, dwells, cut)
+            val res = FloatArray(2 * KineticaConstants.RESAMPLE_N)
+            RESAMPLER.resample(c.points, res)
+            return SwipeToken(
+                streamId, c.points, res, c.contacts, c.arcLen, downTime, t,
+                dwells = c.dwells, apostrophe = true,
+            )
+        }
         val resampled = FloatArray(2 * KineticaConstants.RESAMPLE_N)
         RESAMPLER.resample(points, resampled)
         return SwipeToken(

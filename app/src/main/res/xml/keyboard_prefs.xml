@@ -455,7 +455,7 @@
             android:title="@string/pref_apostrophe_key_title"
             app:singleLineTitle="false"
             android:summary="@string/pref_apostrophe_key_summary"
-            android:defaultValue="false" />
+            android:defaultValue="true" />
         <SwitchPreferenceCompat
             android:key="pref_emoji_key"
             android:title="@string/pref_emoji_key_title"

@@ -49,11 +49,19 @@ object LayoutMutations {
     const val APOSTROPHE_HOME_ROW_SHIFT = 0.015f
 
     /**
-     * Optional apostrophe key: a narrow, chromeless (Nintype-style) CHAR key at the right of the
-     * home row, so "'" is one tap away for elided and contracted words ("nell'immagine",
-     * "don't"). Not a letter key, so the swipe engine never sees it. The home row nudges left by
-     * [APOSTROPHE_HOME_ROW_SHIFT]. Alpha-layout chain only; idempotent, because the appended key
-     * guards re-entry and the nudge is never doubled.
+     * Optional apostrophe key: a narrow, chromeless (no key background,
+     * Nintype-style) CHAR key at the right of the home row, so "'" is reachable
+     * by a single tap without the symbols layer or a long-press - the writing
+     * path for elided/contracted words in any language (e.g. "nell'immagine",
+     * "don't"). It is not a letter to the swipe engine: no stream starts on it
+     * and no reading spells it. Its rect does ride along in the engine geometry,
+     * so a swipe that ends on it, or goes out to it and back, marks the word as
+     * wanting an apostrophe (ApostropheExcursion), and a tap on it while a word
+     * is being swiped does the same (KineticaIME.markApostrophe). On by default
+     * in this fork. The home row nudges left by
+     * [APOSTROPHE_HOME_ROW_SHIFT] so the key sits apart from "L". Applied in the
+     * alpha-layout chain only; idempotent (the appended key guards re-entry, so
+     * the nudge is never doubled).
      */
     fun withApostropheKey(layout: KeyboardLayout): KeyboardLayout {
         if (layout.keys.any { it.id == APOSTROPHE_KEY_ID }) return layout

@@ -653,6 +653,15 @@ class KeyboardView @JvmOverloads constructor(
             if (r[0] < blockLeft) blockLeft = r[0]
             if (r[2] > blockRight) blockRight = r[2]
         }
+        // The main-page apostrophe key rides along under its own code, after the block
+        // above was measured from the letters alone. Not a letter to the engine: it only
+        // lets a swipe that went out to it and back be read as an apostrophe.
+        val apos = l.keys.indexOfFirst { it.id == LayoutMutations.APOSTROPHE_KEY_ID }
+        if (apos != -1 && l.alphabet.apostrophe >= 0) {
+            val r = keyRects[apos]
+            rects.add(floatArrayOf(r.left, r.top, r.right, r.bottom))
+            codes.add(l.alphabet.apostrophe)
+        }
         val g = KeyboardGeometry.fromPx(
             minLetterW, (blockLeft + blockRight) / 2f, rects, codes.toIntArray(), l.alphabet,
         )
