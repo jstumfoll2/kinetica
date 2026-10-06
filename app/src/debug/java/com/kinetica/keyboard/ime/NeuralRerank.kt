@@ -44,6 +44,14 @@ object NeuralRerank {
     private const val PREF_ENABLED = "enabled"
     private const val PREF_BETA = "beta"
 
+    private const val TAG = "KineticaNeural"
+
+    /** Live rerank timings kept for the trace screen's p50/p95. */
+    private const val RING = 256
+
+    /** Rows of each arm kept in a trace line. */
+    private const val SHOWN = 3
+
     private var prefs: SharedPreferences? = null
     private var appContext: Context? = null
     private var model: ByteArray? = null
@@ -224,10 +232,4 @@ object NeuralRerank {
             comparing.set(false)
         }
     }
-
-    private const val TAG = "KineticaNeural"
-    private const val RING = 256
-
-    /** Rows of each arm kept in a trace line. */
-    private const val SHOWN = 3
 }
