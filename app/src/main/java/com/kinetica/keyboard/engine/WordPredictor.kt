@@ -217,6 +217,13 @@ class WordPredictor(
         return variants.none { it.display.lowercase() == w }
     }
 
+    /** The bundled word-pair boost byte for [prev] then [next] (see [BigramTable.boostByte]), 0 when absent. */
+    fun pairByte(prev: String, next: String): Int =
+        bigrams.boostByte(
+            trie.nodeFor(AccentFolder.fold(prev.lowercase())),
+            trie.nodeFor(AccentFolder.fold(next.lowercase())),
+        )
+
     /** The frequency byte fw is built from, of [word]'s own spelling; -1 when it is not a word. */
     fun frequencyByte(word: String): Int {
         val w = word.lowercase()
@@ -561,8 +568,8 @@ class WordPredictor(
     /**
      * The passes' list, re-scored where the beam read a word better, plus the beam's own words
      * that outscore the passes' lead, at most BEAM_MAX_NEW of them. Below the lead a beam word
-     * only takes a free slot: pushing the passes' tail out loses `sarei`, a free slot holds
-     * `landscape`. When the passes found nothing, the beam's list is the list.
+     * only takes a free slot among the first TOP_K: pushing the passes' tail out loses `sarei`, a
+     * free slot holds `landscape`. When the passes found nothing, the beam's list is the list.
      */
     private fun mergeBeam(passes: List<WordCandidate>, beam: List<WordCandidate>): List<WordCandidate> {
         if (passes.isEmpty()) return beam
@@ -576,7 +583,11 @@ class WordPredictor(
             if (added < KineticaConstants.BEAM_MAX_NEW && c.score > lead) {
                 out.add(c)
                 added++
-            } else if (passes.size + added + filled < heapDepth) {
+            } else if (minOf(passes.size, topK) + added + filled < topK) {
+                // Free slots are counted in the shipping list's TOP_K, not the heap's depth, so a
+                // deep heap (the reranker's) is the shipping list plus its tail: counted in
+                // heapDepth, a beam `hell` took a free slot only the deep list had and pushed out
+                // the shipping list's tenth word.
                 out.add(c)
                 filled++
             }

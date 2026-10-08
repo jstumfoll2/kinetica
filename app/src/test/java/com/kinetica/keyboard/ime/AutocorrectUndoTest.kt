@@ -20,4 +20,28 @@ class AutocorrectUndoTest {
         assertEquals(-1, autocorrectUndoSpan("anb ", "and", typedAfter = 1))
         assertEquals(-1, autocorrectUndoSpan("d ", "and", typedAfter = 1))
     }
+
+    @Test
+    fun typedLettersSitRightAfterTheCorrectedWord() {
+        // Ten candidates used to push the letters off the strip's end.
+        val options = mutableListOf("tino", "tin", "tine", "ting", "tiny", "tint", "tion")
+        moveTypedSecond(options, "tion")
+        assertEquals(listOf("tino", "tion", "tin", "tine", "ting", "tiny", "tint"), options)
+    }
+
+    @Test
+    fun aStripPickOfTheTypedLettersRevertsTheCorrection() {
+        assertEquals(true, revertsAutocorrect("tion", "tino", current = "tino", replacement = "tion"))
+        assertEquals(true, revertsAutocorrect("dd", "did", current = "Did", replacement = "DD"))
+        assertEquals(false, revertsAutocorrect("tion", "tino", current = "tino", replacement = "tine"))
+        assertEquals(false, revertsAutocorrect("tion", "tino", current = "then", replacement = "tion"))
+    }
+
+    @Test
+    fun oneRevertLearnsTheLettersUpToTheMergeFloor() {
+        assertEquals(2, typedLettersTopUp(0))
+        assertEquals(1, typedLettersTopUp(1))
+        assertEquals(0, typedLettersTopUp(2))
+        assertEquals(0, typedLettersTopUp(7))
+    }
 }

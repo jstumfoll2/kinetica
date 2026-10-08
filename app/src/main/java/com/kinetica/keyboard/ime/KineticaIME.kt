@@ -32,6 +32,7 @@ import com.kinetica.keyboard.engine.DecodeTrace
 import com.kinetica.keyboard.engine.Alphabet
 import com.kinetica.keyboard.engine.DictionaryLoader
 import com.kinetica.keyboard.engine.GestureEngine
+import com.kinetica.keyboard.engine.GrammarCheck
 import com.kinetica.keyboard.engine.KeyboardGeometry
 import com.kinetica.keyboard.engine.KineticaConstants
 import com.kinetica.keyboard.engine.LanguageMomentum
@@ -236,6 +237,20 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
     /** The last autocorrect, until anything else is typed: a backspace puts the letters back. */
     private class AutocorrectUndo(val typed: String, val corrected: String, val end: Int)
     private var autocorrectUndo: AutocorrectUndo? = null
+
+    /**
+     * The autocorrect the last commit made, for the strip: unlike [autocorrectUndo] it outlives
+     * the next token, because the strip does. Cleared by any other commit.
+     */
+    private var lastAutocorrect: AutocorrectUndo? = null
+
+    /**
+     * Whether the user chose the last commit's spelling themselves (a bar or strip pick, or letters
+     * kept after an undone correction), which the grammar pass then leaves alone; and the same for
+     * the commit in progress.
+     */
+    private var lastCommitDeliberate = false
+    private var nextCommitDeliberate = false
     private var midWordHistory: CommitHistory.Record? = null
     // The word reloadWordUnderCursor seeded back from the editor, if any. Read
     // once at commit to keep a re-commit of unchanged text from being learned
@@ -1875,10 +1890,22 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
         autospaceInserted = false
         unlearnWord(undo.corrected)
         lastCommitLearned = null
-        rememberRejectedCorrection(undo.typed)
+        acceptTypedLetters(undo.typed)
         DecodeTrace.log { "  autocorrect undo word=${undo.corrected} typed=${undo.typed}" }
         updateAutoShift()
         return true
+    }
+
+    /**
+     * An autocorrect the user reverted says the letters were meant. They are not corrected again
+     * while the keyboard runs, and they are learned up to the merge floor at once, so the
+     * dictionary holds them from the next load on: one revert is enough, where an accepted
+     * peck needs [KineticaConstants.PERSONAL_MERGE_MIN_COUNT] commits.
+     */
+    private fun acceptTypedLetters(typed: String, lang: String = languageOf(typed)) {
+        rememberRejectedCorrection(typed)
+        val missing = typedLettersTopUp(countsFor(lang)[typed.lowercase()] ?: 0)
+        if (missing > 0) learnWord(typed, amount = missing, lang = lang)
     }
 
     private fun rememberRejectedCorrection(typed: String) {
@@ -1895,8 +1922,8 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
      * Whether tapped letters the active dictionary holds as a rare word are more than that
      * elsewhere: a common word in another resident language (`dir` is rare English, common
      * Spanish), or a word the user has committed in any language as often as the merge floor
-     * asks (one commit can be the uncorrected typo itself). A real-word correction must not
-     * fire on either.
+     * asks (one commit can be the uncorrected typo itself). No tap autocorrect fires on either,
+     * whether or not the active list holds the letters.
      */
     private fun heldOutsideActive(literal: String): Boolean {
         val w = literal.lowercase()
@@ -3197,6 +3224,8 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
             tentativeLength = span
             tentativeWord = kept.staleWord
         }
+        lastAutocorrect = null
+        nextCommitDeliberate = true
         replaceTentative(word)
         TraceRecorder.label("picked")
         commitWordInternal(word)
@@ -3249,6 +3278,13 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
         if (!current.equals(replacement, ignoreCase = true)) {
             unlearnWord(current)
         }
+        lastCommitDeliberate = true
+        val corrected = lastAutocorrect
+        lastAutocorrect = null
+        if (corrected != null && revertsAutocorrect(corrected.typed, corrected.corrected, current, replacement)) {
+            DecodeTrace.log { "  autocorrect reverted word=$current typed=$replacement src=strip" }
+            acceptTypedLetters(replacement, replacementLang)
+        }
         lastLearnedWord = replacement.lowercase()
         lastLearnedWordLang = replacementLang
     }
@@ -3278,6 +3314,7 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
 
         var finalWord = tentativeWord
         var how = if (comp.hasSwipeToken()) "tentative" else "typed"
+        lastAutocorrect = null
         val p = predictor
         val threshold = config.autocorrectConfidence
         if (p != null && !comp.hasSwipeToken() && lastLiteral.isNotEmpty() &&
@@ -3289,10 +3326,13 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
             )
             val target = if (threshold != null && !keeps) {
                 p.tapAutocorrect(lastLiteral, lastTentative, threshold, lastCandidates)
-                    ?.takeUnless { p.isWord(lastLiteral) && heldOutsideActive(lastLiteral) }
+                    // Also for letters the active list lacks: the English list no longer holds
+                    // Spanish `el` or `esta`, and a bilingual user's peck must stay.
+                    ?.takeUnless { heldOutsideActive(lastLiteral) }
             } else {
                 null
             }
+            if (keeps) nextCommitDeliberate = true
             if (keeps && threshold != null) {
                 DecodeTrace.log {
                     "  autocorrect kept typed=$lastLiteral " +
@@ -3306,6 +3346,7 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
                 finalWord = display
                 how = "autocorrect"
                 autocorrectUndo = AutocorrectUndo(typed, display, cursorExpected())
+                lastAutocorrect = AutocorrectUndo(typed, display, cursorExpected())
             }
         }
         // A word marked by a tap on the apostrophe key that has no apostrophe spelling
@@ -3735,6 +3776,9 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
     }
 
     private fun commitWordInternal(word: String) {
+        val previousDeliberate = lastCommitDeliberate
+        lastCommitDeliberate = nextCommitDeliberate
+        nextCommitDeliberate = false
         recordTypingSpeed(word)
         noteLanguageMomentum(word)
         // Correction options, each a tappable zone: the committed word, the other ranked
@@ -3756,6 +3800,9 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
             options.subList(1, options.size).removeAll { it.lowercase() in blockedSpellings }
             if (typed?.lowercase() in blockedSpellings) typed = null
         }
+        // The letters as typed come straight after the word, one tap from a wrong correction:
+        // at the end of ten candidates they fell off the strip.
+        typed?.let { moveTypedSecond(options, it) }
         val lang = languageOf(word)
         if (word.isNotEmpty()) {
             val alts = options.drop(1).let { o -> if (typed == null) o else listOf(typed) + (o - typed) }
@@ -3763,6 +3810,7 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
             commitHistory.record(cursorExpected() - word.length, word, alts, langs)
         }
         composer?.commitWord(word.lowercase())
+        if (!previousDeliberate) fixPreviousWord(word)
         tentativeLength = 0
         tentativeWord = ""
         lastCandidates = emptyList()
@@ -3815,6 +3863,38 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
         reloadedByHand = false
         reloadHistory = null
         updateBarWordPending()
+    }
+
+    /**
+     * The grammar pass ([GrammarCheck]) over the word before [word], which has just gone on screen
+     * right after it and a single space: `your going` becomes `you're going`, `a apple` becomes
+     * `an apple`. English only, under autocorrect, never in private fields, and never on a word
+     * the user picked. The original stays on the word's bar: a tap on the word reopens it.
+     */
+    private fun fixPreviousWord(word: String) {
+        if (config.autocorrectConfidence == null || !editorState.offersCorrections) return
+        if (config.language != "en" || languageOf(word) != "en") return
+        val p = predictor ?: return
+        val tail = ich.textBeforeCursor(GRAMMAR_TAIL_CHARS)?.toString() ?: return
+        val words = grammarWords(tail, word) ?: return
+        val (before, shown) = words
+        val prev = shown.lowercase()
+        if (composer?.contextSnapshot()?.let { it.size >= 2 && it[it.size - 2] == prev } != true) return
+        val fixed = GrammarCheck.fixPrevious(before?.lowercase(), prev, word.lowercase()) { a, b -> p.pairByte(a, b) }
+            ?: return
+        val replacement = GrammarCheck.inCaseOf(shown, fixed)
+        val span = shown.length + 1 + word.length
+        val prevStart = cursorExpected() - span
+        ich.replaceBeforeCursor(span, "$replacement $word")
+        commitHistory.replaced(prevStart, shown, replacement)
+        expectAfter(span, replacement.length + 1 + word.length, rewritesWord = true)
+        composer?.replaceCommit(1, prev, fixed)
+        recentWords.onReplaced(1, replacement)
+        if (!editorState.teachesNothing) {
+            unlearnWord(prev)
+            learnWord(fixed, lang = "en")
+        }
+        DecodeTrace.log { "  grammar word=$prev fixed=$fixed next=${word.lowercase()}" }
     }
 
     private fun abandonWord() {
@@ -3968,6 +4048,9 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
 
         /** Editor text read to find the word a prediction follows: one long word and its space. */
         const val PREDICT_TAIL_CHARS = 48
+
+        /** Editor text read for the grammar pass: two words back from the word just committed. */
+        const val GRAMMAR_TAIL_CHARS = 64
 
         /** Spaces read back for a backspace to collapse; a longer run collapses in steps. */
         const val SPACE_RUN_READ_CHARS = 32
@@ -4917,6 +5000,38 @@ internal fun showsCorrectionStrip(
  */
 internal fun literalZone(literal: String, autocorrects: Boolean, leavesAccentsOff: Boolean, blocked: Boolean = false): String =
     if (blocked || (autocorrects && leavesAccentsOff)) "" else literal
+
+/**
+ * Whether a strip pick of [replacement] over [current] takes back the autocorrect that turned
+ * [typed] into [corrected]: the strip still names that word, and the pick is the typed letters.
+ */
+internal fun revertsAutocorrect(typed: String, corrected: String, current: String, replacement: String): Boolean =
+    current.equals(corrected, ignoreCase = true) && replacement.equals(typed, ignoreCase = true)
+
+/**
+ * The word before the last one and the last one's predecessor, as written, from [tail] (the text
+ * before the cursor) ending in [word]: `(before, prev)`, `before` null at the start of the text or
+ * after punctuation. Null when [word] is not preceded by exactly one space and a word.
+ */
+internal fun grammarWords(tail: String, word: String): Pair<String?, String>? {
+    if (!tail.endsWith(word)) return null
+    val rest = tail.substring(0, tail.length - word.length)
+    val m = GRAMMAR_TAIL_RE.find(rest) ?: return null
+    return m.groupValues[1].ifEmpty { null } to m.groupValues[2]
+}
+
+private val GRAMMAR_TAIL_RE = Regex("""(?:(?:^|\s)([\p{L}']+) )?(?:^|(?<=[^\p{L}']))([\p{L}']+) $""")
+
+/** Moves [typed] to just after the committed word in a strip's [options], adding it if absent. */
+internal fun moveTypedSecond(options: MutableList<String>, typed: String) {
+    if (options.isEmpty()) return
+    options.remove(typed)
+    options.add(1, typed)
+}
+
+/** Learning a reverted autocorrect's letters still needs to add, from their [count] so far. */
+internal fun typedLettersTopUp(count: Int): Int =
+    (KineticaConstants.PERSONAL_MERGE_MIN_COUNT - count).coerceAtLeast(0)
 
 /**
  * How much a backspace takes back to undo an autocorrect: the corrected word, plus the one space
