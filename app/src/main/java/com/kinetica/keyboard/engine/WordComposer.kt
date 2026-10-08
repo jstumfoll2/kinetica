@@ -303,6 +303,9 @@ class WordComposer(
         if (o != null) {
             o.onBufferEnd(ArrayList(tokens), context.toList(), shown, shownFor, committed, apostropheMarked)
         }
+        // The mark belongs to the word that ends here. Left set it marked every later word
+        // too, and the IME appended an apostrophe to each one until the keyboard restarted.
+        apostropheMarked = false
         shown = emptyList()
         shownFor = 0
     }

@@ -183,4 +183,39 @@ class WordComposerTest {
         assertEquals("the", cap.literal)
         assertEquals("the", cap.candidates.first().word)
     }
+
+    @Test
+    fun theApostropheMarkEndsWithItsWord() {
+        // A tap on the apostrophe key marks the word being swiped. The mark once survived
+        // the commit and marked every word after it: the IME appended an apostrophe to each
+        // until the keyboard was switched off and on.
+        val cap = Capture()
+        val composer = WordComposer(predictor, direct, direct, cap)
+        val seen = ArrayList<Boolean>()
+        composer.observer = object : WordComposer.Observer {
+            override fun onBufferEnd(
+                tokens: List<com.kinetica.keyboard.engine.models.InputToken>,
+                context: List<String>,
+                shown: List<WordCandidate>,
+                shownFor: Int,
+                committed: String?,
+                apostropheMark: Boolean,
+            ) { seen.add(apostropheMark) }
+        }
+        composer.onToken(TestData.swipe("om", g, 0, 200))
+        composer.markApostrophe()
+        assertTrue(composer.apostropheMarked)
+        composer.commitWord("om")
+        assertFalse("mark survived the commit", composer.apostropheMarked)
+
+        composer.onToken(TestData.tap('t', g, 1000))
+        assertFalse("next word inherited the mark", composer.apostropheMarked)
+        composer.clear()
+        composer.markApostrophe()
+        composer.clear()
+        assertFalse("mark survived an abandoned word", composer.apostropheMarked)
+        composer.onToken(TestData.tap('t', g, 2000))
+        composer.commitWord("t")
+        assertEquals(listOf(true, false, true, false), seen)
+    }
 }
