@@ -47,7 +47,7 @@
                 android:title="@string/pref_auto_detect_title"
                 app:singleLineTitle="false"
                 android:summary="@string/pref_auto_detect_summary"
-                android:defaultValue="false" />
+                android:defaultValue="true" />
             <SwitchPreferenceCompat
                 android:key="pref_no_primary"
                 android:title="@string/pref_no_primary_title"
@@ -103,7 +103,7 @@
                 android:key="pref_autospace"
                 android:title="@string/pref_autospace_title"
                 app:singleLineTitle="false"
-                android:defaultValue="true" />
+                android:defaultValue="false" />
             <com.kinetica.keyboard.settings.SteppedSliderPreference
                 android:key="pref_autospace_delay_ms"
                 android:title="@string/pref_autospace_delay_title"
@@ -140,7 +140,7 @@
                 android:title="@string/pref_word_ends_on_space_title"
                 app:singleLineTitle="false"
                 android:summary="@string/pref_word_ends_on_space_summary"
-                android:defaultValue="false" />
+                android:defaultValue="true" />
             <SwitchPreferenceCompat
                 android:key="pref_double_space_period"
                 android:title="@string/pref_double_space_period_title"
@@ -266,7 +266,7 @@
                 android:title="@string/pref_retype_avoids_title"
                 app:singleLineTitle="false"
                 android:summary="@string/pref_retype_avoids_summary"
-                android:defaultValue="false" />
+                android:defaultValue="true" />
         </PreferenceScreen>
     </PreferenceScreen>
 
@@ -356,7 +356,7 @@
             android:key="pref_keyboard_height_pct"
             android:title="@string/pref_height_title"
             app:singleLineTitle="false"
-            android:defaultValue="35"
+            android:defaultValue="20"
             android:max="50"
             app:min="10"
             app:showSeekBarValue="true" />
@@ -364,7 +364,7 @@
             android:key="pref_keyboard_height_pct_landscape"
             android:title="@string/pref_height_landscape_title"
             app:singleLineTitle="false"
-            android:defaultValue="45"
+            android:defaultValue="19"
             android:max="50"
             app:min="10"
             app:showSeekBarValue="true" />
@@ -449,7 +449,7 @@
             android:title="@string/pref_number_row_title"
             app:singleLineTitle="false"
             android:summary="@string/pref_number_row_summary"
-            android:defaultValue="false" />
+            android:defaultValue="true" />
         <SwitchPreferenceCompat
             android:key="pref_apostrophe_key"
             android:title="@string/pref_apostrophe_key_title"
@@ -461,7 +461,7 @@
             android:title="@string/pref_emoji_key_title"
             app:singleLineTitle="false"
             android:summary="@string/pref_emoji_key_summary"
-            android:defaultValue="false" />
+            android:defaultValue="true" />
         <ListPreference
             android:key="pref_comma_mode"
             android:title="@string/pref_comma_mode_title"
