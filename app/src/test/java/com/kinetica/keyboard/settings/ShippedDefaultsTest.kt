@@ -33,10 +33,10 @@ class ShippedDefaultsTest {
 
     @Test
     fun theSettingsScreenShowsTheShippedValues() {
-        val xml = Files.readString(
-            listOf(Paths.get("src/main/res/xml/keyboard_prefs.xml"), Paths.get("app/src/main/res/xml/keyboard_prefs.xml"))
-                .first { Files.exists(it) },
-        )
+        // Files.readString is missing from the Android compile classpath.
+        val path = listOf(Paths.get("src/main/res/xml/keyboard_prefs.xml"), Paths.get("app/src/main/res/xml/keyboard_prefs.xml"))
+            .first { Files.exists(it) }
+        val xml = Files.newBufferedReader(path).use { it.readText() }
         val missing = ArrayList<String>()
         for ((key, value) in SHIPPED) {
             val shown = Regex("""android:key="$key"[^>]*?android:defaultValue="([^"]*)"""", RegexOption.DOT_MATCHES_ALL)
