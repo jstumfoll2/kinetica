@@ -858,6 +858,7 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
         kv.popupColumns = config.popupColumns
         kv.autospaceDot = config.autospace
         kv.backspaceCharSlide = config.backspaceCharSlide
+        kv.backspaceStepDp = config.backspaceStepDp
         kv.spacebarStepDp = config.spacebarStepDp
         kv.spacebarWordSlide = config.spacebarWordSlide
         kv.spacelessSpace = config.spacelessSpace

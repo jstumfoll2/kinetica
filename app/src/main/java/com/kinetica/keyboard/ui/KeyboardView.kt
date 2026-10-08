@@ -145,6 +145,11 @@ class KeyboardView @JvmOverloads constructor(
         get() = backspaceController.charMode
         set(value) { backspaceController.charMode = value }
 
+    /** Travel per staged word on the backspace slide; lower is more sensitive. */
+    var backspaceStepDp: Float
+        get() = backspaceController.stepDp
+        set(value) { backspaceController.stepDp = value }
+
     /** Travel that advances the spacebar's cursor slide by one step; lower is faster. */
     var spacebarStepDp: Float
         get() = spaceController.stepDp
@@ -1005,7 +1010,7 @@ class KeyboardView @JvmOverloads constructor(
             }
             key?.type == KeyType.BACKSPACE && backspacePointer == -1 -> {
                 backspacePointer = pid
-                backspaceController.onDown(x, backspaceHoldArmMs)
+                backspaceController.onDown(x, backspaceHoldArmMs, t)
                 ROUTE_BACKSPACE
             }
             else -> ROUTE_SPECIAL
@@ -1381,7 +1386,7 @@ class KeyboardView @JvmOverloads constructor(
                     spaceController.onMove(x)
                     if (spaceController.sliding) spaceHoldMoved = true
                 }
-                ROUTE_BACKSPACE -> backspaceController.onMove(x)
+                ROUTE_BACKSPACE -> backspaceController.onMove(x, ev.eventTime)
                 ROUTE_SPECIAL -> maybeArmEnterPopup(pid, x, y)
                 ROUTE_MODE_HOLD, ROUTE_ALT_POPUP -> if (pid == popupPointer) {
                     // Choosing a cell is not holding still.
@@ -1464,7 +1469,7 @@ class KeyboardView @JvmOverloads constructor(
                     backspaceController.cancel()
                     listener?.onEdgeSwipe(shortcut)
                 } else {
-                    backspaceController.onUp()
+                    backspaceController.onUp(t)
                 }
                 backspacePointer = -1
             }

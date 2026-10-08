@@ -258,6 +258,12 @@ object Prefs {
     const val BACKSPACE_CHAR_SLIDE = "pref_backspace_char_slide"
 
     /**
+     * Travel, in dp, that stages one more word on the backspace slide. Higher is calmer. A letter
+     * step is a fixed share of it (DeleteSpan.slideDpPerUnit), so one slider tunes both modes.
+     */
+    const val BACKSPACE_STEP_DP = "pref_backspace_step_dp"
+
+    /**
      * Reserve the suggestion bar's right edge for a retype button: one tap throws the
      * current word away so it can be gestured again in place.
      *
@@ -491,6 +497,8 @@ object Prefs {
     const val DEFAULT_POPUP_SHAPE = "row"
     const val DEFAULT_ALTERNATE_SWIPES = true
     const val DEFAULT_BACKSPACE_CHAR_SLIDE = false
+    /** Must match DeleteSpan.DEFAULT_WORD_STEP_DP and keyboard_prefs.xml. */
+    const val DEFAULT_BACKSPACE_STEP_DP = 56
     const val DEFAULT_RETYPE_BUTTON = false
     const val DEFAULT_SPACEBAR_STEP_DP = 20
     const val DEFAULT_REINFORCE_STEP_DP = 24

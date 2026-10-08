@@ -5,6 +5,7 @@ import com.kinetica.keyboard.engine.Alphabet
 import com.kinetica.keyboard.engine.KineticaConstants
 import com.kinetica.keyboard.ime.singleLetterDelayMs
 import com.kinetica.keyboard.keys.ActionRow
+import com.kinetica.keyboard.keys.DeleteSpan
 import com.kinetica.keyboard.keys.EdgeSwipeBindings
 import com.kinetica.keyboard.keys.SpacebarCursorController
 import com.kinetica.keyboard.layout.LandscapeArrangement
@@ -66,6 +67,8 @@ data class KeyboardConfig(
     val alternateSwipes: Boolean,
     /** Backspace slide stages single characters instead of whole words. */
     val backspaceCharSlide: Boolean,
+    /** Backspace slide travel per staged word; a letter step is a fixed share of it. */
+    val backspaceStepDp: Float,
     /** Suggestion bar reserves its right edge for a retype button. */
     val retypeButton: Boolean,
     /** Width of that button in dp, clamped to BarMetrics' settable range. */
@@ -263,6 +266,12 @@ data class KeyboardConfig(
             backspaceCharSlide = prefs.getBoolean(
                 Prefs.BACKSPACE_CHAR_SLIDE, Prefs.DEFAULT_BACKSPACE_CHAR_SLIDE,
             ),
+            backspaceStepDp = prefs.getInt(
+                Prefs.BACKSPACE_STEP_DP, Prefs.DEFAULT_BACKSPACE_STEP_DP,
+            ).coerceIn(
+                DeleteSpan.MIN_WORD_STEP_DP.toInt(),
+                DeleteSpan.MAX_WORD_STEP_DP.toInt(),
+            ).toFloat(),
             retypeButton = prefs.getBoolean(Prefs.RETYPE_BUTTON, Prefs.DEFAULT_RETYPE_BUTTON),
             sidePadDp = prefs.getInt(Prefs.SIDE_PAD_DP, Prefs.DEFAULT_SIDE_PAD_DP)
                 .coerceIn(0, LayoutTransforms.MAX_SIDE_PAD_DP),

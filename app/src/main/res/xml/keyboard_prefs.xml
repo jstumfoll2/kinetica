@@ -613,6 +613,15 @@
                 app:singleLineTitle="false"
                 android:summary="@string/pref_backspace_char_slide_summary"
                 android:defaultValue="false" />
+            <SeekBarPreference
+                android:key="pref_backspace_step_dp"
+                android:title="@string/pref_backspace_step_title"
+                android:summary="@string/pref_backspace_step_summary"
+                app:singleLineTitle="false"
+                android:defaultValue="56"
+                android:max="120"
+                app:min="24"
+                app:showSeekBarValue="true" />
             <SwitchPreferenceCompat
                 android:key="pref_spacebar_word_slide"
                 android:title="@string/pref_spacebar_word_slide_title"
