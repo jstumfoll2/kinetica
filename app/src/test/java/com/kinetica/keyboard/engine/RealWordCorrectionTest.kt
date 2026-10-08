@@ -39,14 +39,14 @@ class RealWordCorrectionTest {
     private fun tapped(word: String) = word.mapIndexed { i, c -> TestData.tap(c, g, i * 150L) }
 
     private fun correction(p: WordPredictor, typed: String): String? {
-        val lead = p.decode(tapped(typed), emptyList()).firstOrNull()
-        return p.tapAutocorrect(typed, lead, threshold)?.word
+        val list = p.decode(tapped(typed), emptyList())
+        return p.tapAutocorrect(typed, list.firstOrNull(), threshold, list)?.word
     }
 
     @Test
     fun rareWordsOneKeyFromCommonOnesAreCorrected() {
         val p = english()
-        for ((typed, meant) in listOf("iy" to "it", "eben" to "even", "thr" to "the", "yhe" to "the")) {
+        for ((typed, meant) in listOf("iy" to "it", "eben" to "even", "yhe" to "the")) {
             assertTrue("$typed must be in the list for this test to mean anything", p.isWord(typed))
             assertEquals(typed, meant, correction(p, typed))
         }

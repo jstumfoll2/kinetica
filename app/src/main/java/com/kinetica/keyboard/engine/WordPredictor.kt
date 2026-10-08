@@ -695,9 +695,17 @@ class WordPredictor(
      * turn Italian `conquesta` into English `conquests`. With one language they are the same
      * candidate, so single-language autocorrect is unchanged.
      */
-    fun tapAutocorrect(literal: String, lead: WordCandidate?, confidenceThreshold: Float): WordCandidate? =
+    fun tapAutocorrect(
+        literal: String,
+        lead: WordCandidate?,
+        confidenceThreshold: Float,
+        candidates: List<WordCandidate> = emptyList(),
+    ): WordCandidate? =
         if (isWord(literal)) {
-            realWordCorrection(literal, lead, confidenceThreshold)
+            // The lead first, then the rest of its language's list in rank order: for tapped
+            // `eben` the decode ranks `been` (a transposition) a hair above `even`.
+            (listOfNotNull(lead) + candidates.filter { lead != null && it.language == lead.language })
+                .firstNotNullOfOrNull { realWordCorrection(literal, it, confidenceThreshold) }
         } else {
             autocorrectTarget(literal, listOfNotNull(lead), confidenceThreshold)
         }

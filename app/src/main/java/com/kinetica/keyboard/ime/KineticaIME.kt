@@ -3287,7 +3287,7 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
                 rejected = lastLiteral.lowercase() in rejectedCorrections,
             )
             val target = if (threshold != null && !keeps) {
-                p.tapAutocorrect(lastLiteral, lastTentative, threshold)
+                p.tapAutocorrect(lastLiteral, lastTentative, threshold, lastCandidates)
                     ?.takeUnless { p.isWord(lastLiteral) && heldOutsideActive(lastLiteral) }
             } else {
                 null
