@@ -311,21 +311,11 @@ class WordPredictor(
         beam: Boolean = true,
         apostrophe: Boolean = false,
     ): List<WordCandidate> {
-        val ranked = heldDoubles(decodeLetters(input, context, beam), input)
+        val ranked = decodeLetters(input, context, beam)
         if (!apostrophe && input.none { it is SwipeToken && it.apostrophe }) return ranked
         val prevWord = context.lastOrNull()?.let { AccentFolder.fold(it.lowercase()) }
         val out = preferApostrophe(ranked, prevWord?.let { trie.nodeFor(it) } ?: -1)
         DecodeTrace.log { "apostrophe$langTag: " + out.take(5).joinToString(" ") { it.word } }
-        return out
-    }
-
-    /** [HeldLetters]: a doubled reading first when the thumb held on its doubled key. */
-    private fun heldDoubles(ranked: List<WordCandidate>, input: List<InputToken>): List<WordCandidate> {
-        val g = geometry ?: return ranked
-        if (ranked.size < 2 || input.none { it is SwipeToken }) return ranked
-        val held = HeldLetters.held(input, g)
-        val out = HeldLetters.preferHeldDouble(ranked, held)
-        if (out !== ranked) DecodeTrace.log { "held double$langTag: ${ranked[0].word} -> ${out[0].word} held=$held" }
         return out
     }
 
