@@ -256,13 +256,7 @@ class Interleave private constructor(
         fun of(tokens: List<InputToken>, g: KeyboardGeometry): Interleave? {
             if (tokens.size < 2 || tokens.size > MAX_STROKES) return null
             if (tokens.none { it is SwipeToken }) return null
-            var overlap = false
-            for (a in tokens) for (b in tokens) {
-                if (a !== b && a is SwipeToken && b is SwipeToken && a.streamId != b.streamId &&
-                    a.tStart < b.tEnd && b.tStart < a.tEnd
-                ) overlap = true
-            }
-            if (!overlap) return null
+            if (!thumbsOverlap(tokens)) return null
             val strokes = tokens.sortedBy { it.tStart }
             val paths = strokes.map { t ->
                 when (t) {
@@ -302,6 +296,16 @@ class Interleave private constructor(
                 if (start[s] < 0 || end[s] < start[s]) return null
             }
             return Interleave(n, times, px, py, start, end, g)
+        }
+
+        /** Whether two swipes from different thumbs overlap in time: both thumbs drawing at once. */
+        fun thumbsOverlap(tokens: List<InputToken>): Boolean {
+            for (a in tokens) for (b in tokens) {
+                if (a !== b && a is SwipeToken && b is SwipeToken && a.streamId != b.streamId &&
+                    a.tStart < b.tEnd && b.tStart < a.tEnd
+                ) return true
+            }
+            return false
         }
 
         private fun pow3(n: Int): Int {

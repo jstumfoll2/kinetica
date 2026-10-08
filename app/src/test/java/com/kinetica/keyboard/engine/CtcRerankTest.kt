@@ -141,7 +141,8 @@ class CtcRerankTest {
         val r = CtcReranker(scorer(), { g }, beta = 0.3f)
         val p = WordPredictor(trie, bigrams, g, forms, reranker = r, rerankDepth = 30, interleave = false)
         val left = TestData.sloppySwipe("hel", g, 1000, 300, 0.3f, StreamId.LEFT)
-        val right = TestData.swipe("lo", g, 1200, 200, StreamId.RIGHT)
+        // One thumb after the other: overlapped thumbs keep the plain order (next test).
+        val right = TestData.swipe("lo", g, 1350, 200, StreamId.RIGHT)
         val out = p.decode(listOf(left, right), emptyList())
         assertTrue(out.isNotEmpty() && out.size <= KineticaConstants.TOP_K)
         val seg = out.first().segmentation
@@ -151,6 +152,21 @@ class CtcRerankTest {
         assertTrue(costs.all { it >= 0f && abs(it) < 1e6f })
         // Rescored list is sorted by the new score.
         assertEquals(out.map { it.score }.sortedDescending(), out.map { it.score })
+    }
+
+    @Test
+    fun overlappedThumbsKeepThePlainOrder() {
+        val g = TestData.qwertyGeometry()
+        val dict = en
+        assumeTrue(dict != null)
+        val (trie, forms, bigrams) = dict!!
+        val r = CtcReranker(scorer(), { g }, beta = 0.3f)
+        val left = TestData.sloppySwipe("hel", g, 1000, 300, 0.3f, StreamId.LEFT)
+        val right = TestData.swipe("lo", g, 1200, 200, StreamId.RIGHT)
+        val plain = WordPredictor(trie, bigrams, g, forms).decode(listOf(left, right), emptyList())
+        val withRerank = WordPredictor(trie, bigrams, g, forms, reranker = r, rerankDepth = 30)
+            .decode(listOf(left, right), emptyList())
+        assertEquals(plain.map { it.word }, withRerank.map { it.word })
     }
 
     /**

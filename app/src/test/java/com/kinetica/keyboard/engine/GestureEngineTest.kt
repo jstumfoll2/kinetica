@@ -129,4 +129,33 @@ class GestureEngineTest {
         }
         assertTrue("jump line in $lines", lines.any { it.startsWith("pointer jump stream=LEFT step=8.00kw dt=4ms") })
     }
+
+    private fun move(id: Int, ch: Char, t: Long) {
+        val (x, y) = at(ch)
+        engine.onPointerMove(id, x, y, t)
+    }
+
+    @Test
+    fun aMergeReTouchKeepsEachThumbsStream() {
+        // Thumbs crossed the centre: the left one is over 'h', the right one over 'f'. The
+        // screen merges them and both lift at once; they come back where they were.
+        assertTrue(down(0, 'd', 0))
+        assertTrue(down(1, 'k', 5))
+        move(0, 'h', 60); move(1, 'f', 60)
+        up(0, 'h', 100)
+        up(1, 'f', 104)
+        assertTrue(down(2, 'h', 140))
+        assertTrue(down(3, 'f', 142))
+        assertEquals(StreamId.LEFT, engine.streamIdOf(2))
+        assertEquals(StreamId.RIGHT, engine.streamIdOf(3))
+    }
+
+    @Test
+    fun ordinaryAlternationAtTheCentreKeepsTheMidlineRule() {
+        // Left thumb lifts at 'f'; the right lands on 'g' just after: no joint lift, no resume.
+        assertTrue(down(0, 'f', 0))
+        up(0, 'f', 60)
+        assertTrue(down(1, 'g', 90))
+        assertEquals(StreamId.RIGHT, engine.streamIdOf(1))
+    }
 }

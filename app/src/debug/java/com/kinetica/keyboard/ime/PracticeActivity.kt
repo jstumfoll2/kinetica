@@ -12,6 +12,7 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.setPadding
 import com.kinetica.keyboard.R
+import com.kinetica.keyboard.engine.trace.PracticeWords
 import com.kinetica.keyboard.engine.trace.SwipeTrace
 import java.io.IOException
 import java.util.Random
@@ -23,7 +24,8 @@ import java.util.Random
  * committed, which is the decoder's own answer and useless for measuring the
  * decoder where it is wrong; here the prompt is the ground truth, stored as the
  * line's `target`. Words are drawn from the bundled English list, weighted toward
- * the buckets the replay report splits on (short words, double letters, long words).
+ * the shapes the decoder still misreads ([PracticeWords]); for the two-thumb and
+ * one-finger kinds a hint under the word says how to draw it.
  *
  * Each prompt is asked [REPEATS] times, since one attempt says little about how a
  * word is usually drawn, and "Discard last" withdraws an attempt the person knows
@@ -40,11 +42,12 @@ import java.util.Random
 class PracticeActivity : AppCompatActivity() {
 
     private lateinit var prompt: TextView
+    private lateinit var hint: TextView
     private lateinit var progress: TextView
     private lateinit var input: EditText
     private lateinit var versus: TextView
     private val rnd = Random()
-    private var words: List<String> = emptyList()
+    private var words = PracticeWords.Pool(emptyList())
     private var done = 0
     private var hits = 0
 
@@ -66,6 +69,7 @@ class PracticeActivity : AppCompatActivity() {
         words = loadWords()
 
         prompt = TextView(this).apply { textSize = 34f }
+        hint = TextView(this).apply { textSize = 16f }
         progress = TextView(this).apply { textSize = 14f }
         versus = TextView(this).apply {
             textSize = 14f
@@ -108,6 +112,7 @@ class PracticeActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(pad)
             addView(prompt)
+            addView(hint)
             addView(input)
             addView(progress)
             addView(versus)
@@ -131,8 +136,9 @@ class PracticeActivity : AppCompatActivity() {
     }
 
     private fun next() {
-        val w = if (words.isEmpty()) "hello" else pick()
+        val (w, kind) = words.pick(rnd)
         prompt.text = w
+        hint.text = kind.hint.orEmpty()
         attempt = 0
         TraceRecorder.words.practiceTarget = w
         showProgress()
@@ -180,32 +186,25 @@ class PracticeActivity : AppCompatActivity() {
         showProgress()
     }
 
-    /** One in four short, one in four with a double letter, the rest any length. */
-    private fun pick(): String {
-        val pool = when (rnd.nextInt(4)) {
-            0 -> words.filter { it.length <= 3 }
-            1 -> words.filter { w -> (1 until w.length).any { w[it] == w[it - 1] } }
-            else -> words
-        }.ifEmpty { words }
-        return pool[rnd.nextInt(pool.size)]
-    }
-
-    private fun loadWords(): List<String> = try {
+    private fun loadWords(): PracticeWords.Pool = PracticeWords.Pool(try {
         assets.open("dictionaries/en_wordlist.txt").bufferedReader().useLines { lines ->
             lines.map { it.substringBefore('\t') }
-                .filter { w -> w.length in 2..12 && w.all { it in 'a'..'z' } }
+                .filter { w -> w.length in 2..MAX_LENGTH && w.all { it in 'a'..'z' } }
                 .take(PROMPT_POOL)
                 .toList()
         }
     } catch (e: IOException) {
         emptyList()
-    }
+    })
 
     private companion object {
         /** Attempts per prompt. */
         const val REPEATS = 3
 
         /** The most frequent words only: a prompt nobody would type teaches nothing. */
-        const val PROMPT_POOL = 5000
+        const val PROMPT_POOL = 12000
+
+        /** Long enough for "specifically" and "technically" and their kin. */
+        const val MAX_LENGTH = 15
     }
 }

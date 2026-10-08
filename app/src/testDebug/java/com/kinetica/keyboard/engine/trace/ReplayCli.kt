@@ -55,6 +55,18 @@ object ReplayCli {
                     println(describe(n, r))
                 }
             }
+            "ranks" -> {
+                // ranks [--ilw W] FILE...: one tab-separated row per scored line, for slicing.
+                val ilw = opt(a, "--ilw")?.toFloat()
+                if (a.isEmpty()) usage()
+                val h = if (ilw == null) ReplayHarness(assets) else
+                    ReplayHarness(assets, interleave = ilw > 0f, interleaveWeight = ilw)
+                val sink = ReplayReport(h.deepK)
+                for (f in a.map { File(it) }) for ((n, w) in read(f, sink)) {
+                    val r = try { h.replay(w) } catch (e: RuntimeException) { continue }
+                    println("${f.name}\t$n\t${r.word.label}\t${r.rank}\t${r.buckets.joinToString(",")}\t${r.shipping.firstOrNull()?.word ?: ""}")
+                }
+            }
             "trace" -> {
                 // trace FILE N [N...]: replay those lines with DecodeTrace on.
                 if (a.size < 2) usage()
