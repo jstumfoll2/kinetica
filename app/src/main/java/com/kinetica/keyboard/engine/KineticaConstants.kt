@@ -385,6 +385,25 @@ object KineticaConstants {
     // boost everywhere (bm^b) reaches two rows only at b ~ 0.1, which deletes context prediction.
     const val BIGRAM_BOOST_MAX = 1.0f
 
+    // GrammarCheck's confusion sets (your/you're, its/it's, there/their...). Boost bytes are log
+    // counts against the previous word's commonest pair, so a byte gap is a count ratio. Set on
+    // the Tatoeba table and the 2,131 sentence-internal words of the owner's 2026-10 traces: at
+    // 40/40 it rewrote five, all right (`but its rare`, `its the`, `its like`, `its a`,
+    // `there whole`), and fixed `your going`, `its raining`, `their going`, `loose weight` in the
+    // unit cases while leaving `its own`, `better then i`, `me too when` (to/too is not a set).
+    const val GRAMMAR_MIN_PAIR_BYTE = 40
+    const val GRAMMAR_PAIR_GAP = 40
+
+    // HeldLetters: a pause on a key mid-swipe marks its letter doubled: samples within
+    // DOUBLE_HOLD_RADIUS_KW of one another on one key for DOUBLE_HOLD_MS, at least
+    // DOUBLE_HOLD_EDGE_MS from the gesture's start and lift. From the owner's single-swipe traces
+    // (2026-10): the doubled key of 37 doubled words met it 38% of the time, 346 other inner
+    // letters 5%. At 0.25 kw or 80 ms the other letters rise to 16%; a speed threshold instead
+    // fires on the slow short segments of an evenly timed swipe.
+    const val DOUBLE_HOLD_RADIUS_KW = 0.2f
+    const val DOUBLE_HOLD_MS = 100L
+    const val DOUBLE_HOLD_EDGE_MS = 60L
+
     /**
      * Score kept per letter a swipe segment consumed that the finger was never measurably on.
      *
