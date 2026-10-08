@@ -11,6 +11,10 @@ import android.os.Handler
  * A unit is a whole word by default, or a single character when [charMode] is set. Only the
  * threshold and the meaning of the count change; staging, retraction and lift are shared, so the
  * mode is a flag and not a second gesture.
+ *
+ * The travel-to-count mapping lives in [BackspaceSlide]: it holds the count still at a step
+ * boundary and drops a step that only the lift's roll added, so what is deleted is what was
+ * highlighted while the finger rested.
  */
 class BackspaceController(
     private val density: Float,
@@ -31,8 +35,11 @@ class BackspaceController(
      */
     var charMode = false
 
+    /** Travel per staged word, in dp; a character step is a fixed fraction of it. */
+    var stepDp = DeleteSpan.DEFAULT_WORD_STEP_DP
+
     private var startX = 0f
-    private var stagedUnits = 0
+    private val slide = BackspaceSlide()
     private var everStaged = false
     private var repeating = false
 
@@ -44,45 +51,47 @@ class BackspaceController(
         }
     }
 
-    fun onDown(x: Float, holdArmMs: Long) {
+    fun onDown(x: Float, holdArmMs: Long, t: Long) {
         startX = x
-        stagedUnits = 0
+        slide.reset(t)
         everStaged = false
         repeating = false
         handler.postDelayed(repeatRunnable, holdArmMs)
     }
 
-    fun onMove(x: Float) {
-        val threshold = DeleteSpan.slideDpPerUnit(charMode) * density
-        val crossings = ((startX - x) / threshold).toInt().coerceAtLeast(0)
-        if (crossings != stagedUnits) {
-            if (crossings > 0) {
+    fun onMove(x: Float, t: Long) {
+        val threshold = DeleteSpan.slideDpPerUnit(charMode, stepDp) * density
+        if (slide.update(startX - x, threshold, t)) {
+            val units = slide.units
+            if (units > 0) {
                 // Sliding cancels the hold-repeat: the two must not stack.
                 handler.removeCallbacks(repeatRunnable)
                 everStaged = true
             }
-            stagedUnits = crossings
-            onStageUnits(crossings, charMode)
+            onStageUnits(units, charMode)
         }
     }
 
-    fun onUp() {
+    fun onUp(t: Long) {
         handler.removeCallbacks(repeatRunnable)
+        val units = slide.atLift(t)
+        // The lift's roll added a step: stage the rested count again before deleting it.
+        if (units != slide.units) onStageUnits(units, charMode)
         when {
-            stagedUnits > 0 -> onCommitStaged()
+            units > 0 -> onCommitStaged()
             // Slid out and back to zero: an explicit cancel, not a tap. A
             // finished hold-repeat run also must not add a tap delete.
             everStaged || repeating -> Unit
             else -> onDeleteChar()
         }
-        stagedUnits = 0
+        slide.reset(t)
         everStaged = false
     }
 
     fun cancel() {
         handler.removeCallbacks(repeatRunnable)
         if (everStaged) onStageUnits(0, charMode)
-        stagedUnits = 0
+        slide.reset(0L)
         everStaged = false
     }
 

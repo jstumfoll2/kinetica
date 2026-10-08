@@ -148,7 +148,7 @@ class DeleteSpanTest {
     fun charModeUsesAShorterStepButNotAProportionalOne() {
         val word = DeleteSpan.slideDpPerUnit(false)
         val char = DeleteSpan.slideDpPerUnit(true)
-        assertEquals("word staging must keep its shipped threshold", 40f, word, 1e-4f)
+        assertEquals("word staging uses the calmer default", DeleteSpan.DEFAULT_WORD_STEP_DP, word, 1e-4f)
         // Shorter, because a character is a smaller edit...
         org.junit.Assert.assertTrue("char step must be shorter: $char vs $word", char < word)
         // ...but well above the 8dp touch slop, or hand tremor would stage one,
@@ -156,6 +156,17 @@ class DeleteSpanTest {
         // screen and a half of travel.
         org.junit.Assert.assertTrue("char step must clear the touch slop: $char", char >= 16f)
         org.junit.Assert.assertTrue("char step must stay a fraction of a word: $char", char < word / 2f)
+    }
+
+    @Test
+    fun theSliderScalesBothStepsAndIsClamped() {
+        assertEquals(80f, DeleteSpan.slideDpPerUnit(false, 80f), 1e-4f)
+        assertEquals(36f, DeleteSpan.slideDpPerUnit(true, 80f), 1e-4f)
+        // Out-of-range values clamp to the slider's bounds.
+        assertEquals(DeleteSpan.MIN_WORD_STEP_DP, DeleteSpan.slideDpPerUnit(false, 1f), 1e-4f)
+        assertEquals(DeleteSpan.MAX_WORD_STEP_DP, DeleteSpan.slideDpPerUnit(false, 999f), 1e-4f)
+        // The smallest word step still leaves a letter step above the touch slop.
+        org.junit.Assert.assertTrue(DeleteSpan.slideDpPerUnit(true, 1f) >= DeleteSpan.MIN_CHAR_STEP_DP)
     }
 
     // ---- the forward mirror, for the spacebar's word slide -----------------

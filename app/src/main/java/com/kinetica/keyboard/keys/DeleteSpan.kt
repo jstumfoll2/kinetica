@@ -9,15 +9,31 @@ package com.kinetica.keyboard.keys
  */
 object DeleteSpan {
 
+    /** Default travel, in dp, per staged word; the `pref_backspace_step_dp` slider's default. */
+    const val DEFAULT_WORD_STEP_DP = 56f
+
+    /** Slider bounds for the word step. Below 24dp a thumb's tremor stages a word. */
+    const val MIN_WORD_STEP_DP = 24f
+    const val MAX_WORD_STEP_DP = 120f
+
+    /** A character step's share of the word step: shorter, but not proportionally. */
+    const val CHAR_STEP_FRACTION = 0.45f
+
+    /** A character step never drops below this, so tremor past the touch slop stages nothing. */
+    const val MIN_CHAR_STEP_DP = 16f
+
     /**
-     * Leftward travel, in dp, that stages one more unit.
+     * Leftward travel, in dp, that stages one more unit, for a word step of [wordStepDp].
      *
      * A character's step is smaller than a word's, but not proportionally. It stays above the
      * touch slop at every density, so a staged count is reached by intent and not by hand
-     * tremor, and a full keyboard width spans a long word, not a sentence. Ten characters cost
-     * 180dp, about the travel of 4-5 words.
+     * tremor, and a full keyboard width spans a long word, not a sentence. At the default, ten
+     * characters cost 250dp, about the travel of 4-5 words.
      */
-    fun slideDpPerUnit(charMode: Boolean): Float = if (charMode) 18f else 40f
+    fun slideDpPerUnit(charMode: Boolean, wordStepDp: Float = DEFAULT_WORD_STEP_DP): Float {
+        val word = wordStepDp.coerceIn(MIN_WORD_STEP_DP, MAX_WORD_STEP_DP)
+        return if (charMode) (word * CHAR_STEP_FRACTION).coerceAtLeast(MIN_CHAR_STEP_DP) else word
+    }
 
     /**
      * Characters a staged slide of [units] covers when the editor already holds a selection of

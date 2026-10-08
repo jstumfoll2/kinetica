@@ -458,6 +458,8 @@
     <string name="dict_import_note">Takes an AOSP wordlist.combined file, such as main_it from the Helium314/aosp-dictionaries mirror (Apache-2.0). It is merged with the bundled list on the phone; abbreviations, offensive entries and spellings missing a bundled word\'s accents are dropped. Word pairs stay the bundled ones.</string>
 
     <string name="pref_backspace_char_slide_title">Backspace slide deletes letters</string>
+    <string name="pref_backspace_step_title">Backspace slide distance</string>
+    <string name="pref_backspace_step_summary">How far you slide left from backspace to mark one more word (a letter takes about half). Higher is calmer</string>
     <string name="pref_backspace_char_slide_summary">Sliding left from backspace marks one letter at a time instead of a word. Nothing is deleted until you lift; sliding back undoes it</string>
     <string name="pref_retype_button_title">Retype button on the suggestion bar</string>
     <string name="pref_retype_button_summary">A \u21bb button at the right end of the bar. One tap removes the word you are writing, or the one just finished, so you can swipe it again</string>
