@@ -46,8 +46,19 @@ class RealWordCorrectionTest {
     @Test
     fun rareWordsOneKeyFromCommonOnesAreCorrected() {
         val p = english()
-        for ((typed, meant) in listOf("iy" to "it", "eben" to "even", "yhe" to "the")) {
+        for ((typed, meant) in listOf("eben" to "even")) {
             assertTrue("$typed must be in the list for this test to mean anything", p.isWord(typed))
+            assertEquals(typed, meant, correction(p, typed))
+        }
+    }
+
+    @Test
+    fun junkTheSpellCheckerFilterDroppedIsCorrectedAsANonWord() {
+        // `iy` (185 subtitle uses) and `yhe` left the list with the SCOWL filter, so the
+        // ordinary non-word autocorrect reaches them.
+        val p = english()
+        for ((typed, meant) in listOf("iy" to "it", "yhe" to "the")) {
+            assertFalse(typed, p.isWord(typed))
             assertEquals(typed, meant, correction(p, typed))
         }
     }
@@ -56,8 +67,8 @@ class RealWordCorrectionTest {
     fun commonAndLongerRealWordsAreKept() {
         val p = english()
         // Common words, and rare five-letter words one key from common ones.
-        // `whos` is a contraction typed without its apostrophe.
-        for (typed in listOf("so", "in", "on", "wafer", "jello", "excise", "fable", "whos")) {
+        // `whats` is a contraction typed without its apostrophe.
+        for (typed in listOf("so", "in", "on", "wafer", "jello", "excise", "fable", "whats")) {
             assertTrue(typed, p.isWord(typed))
             assertNull(typed, correction(p, typed))
         }
@@ -74,16 +85,16 @@ class RealWordCorrectionTest {
     @Test
     fun theRuleNeedsOneLetterApartAndALargeFrequencyGap() {
         val p = english()
-        val it = cand("it", 0.1f, WordCandidate.Source.FUZZY_TAP)
-        assertEquals("it", p.realWordCorrection("iy", it, threshold)?.word)
+        val even = cand("even", 0.1f, WordCandidate.Source.FUZZY_TAP)
+        assertEquals("even", p.realWordCorrection("eben", even, threshold)?.word)
         // Not confident enough.
-        val far = cand("it", 0.5f, WordCandidate.Source.FUZZY_TAP)
-        assertNull(p.realWordCorrection("iy", far, threshold))
+        val far = cand("even", 0.5f, WordCandidate.Source.FUZZY_TAP)
+        assertNull(p.realWordCorrection("eben", far, threshold))
         // Two letters apart.
-        assertNull(p.realWordCorrection("iy", cand("to", 0.1f, WordCandidate.Source.FUZZY_TAP), threshold))
+        assertNull(p.realWordCorrection("eben", cand("oven", 0.1f, WordCandidate.Source.FUZZY_TAP), threshold))
         // A completion never corrects.
-        assertNull(p.realWordCorrection("iy", cand("it", 0.1f, WordCandidate.Source.COMPLETION), threshold))
-        assertTrue(p.frequencyByte("it") > p.frequencyByte("iy"))
+        assertNull(p.realWordCorrection("eben", cand("even", 0.1f, WordCandidate.Source.COMPLETION), threshold))
+        assertTrue(p.frequencyByte("even") > p.frequencyByte("eben"))
         assertEquals(-1, p.frequencyByte("qzx"))
     }
 
