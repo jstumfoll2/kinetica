@@ -281,8 +281,17 @@ class WordPredictor(
         if (ilHits.isEmpty()) passes else withInterleaved(ilHits, passes)
 
     /** The stage-A reranker over the finished list, cut back to [topK]; the list itself without one. */
+    // The encoder was trained on one-finger swipes and scores each thumb's piece alone, so on
+    // two thumbs drawing at once it has no view of the letter order. On the developer's
+    // 2026-10-08 device A/B, overlapped words at beta 0.3 went 79% plain -> 69% reranked
+    // (29 words; 0.05 was level). Those buffers keep the plain order.
     private fun reranked(out: List<WordCandidate>, tokens: List<InputToken>): List<WordCandidate> =
-        if (reranker == null) out else reranker.rerank(tokens, out).take(topK)
+        when {
+            reranker == null -> out
+            // The heap ran rerankDepth deep for the encoder; hand back the shipping top K.
+            Interleave.thumbsOverlap(tokens) -> out.take(topK)
+            else -> reranker.rerank(tokens, out).take(topK)
+        }
 
     /**
      * Ranked candidates for [input]; see [decodeLetters] for [beam] and [context]. [apostrophe] says the

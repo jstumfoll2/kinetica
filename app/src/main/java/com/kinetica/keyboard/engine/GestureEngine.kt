@@ -59,6 +59,11 @@ class GestureEngine(private val listener: Listener) {
     private val streams = arrayOfNulls<GestureStream>(2)     // slot 0 = LEFT, 1 = RIGHT
     private val slotByPointer = IntArray(MAX_POINTER_ID) { -1 }
 
+    // Where and when each slot's last real stroke lifted, for [resumeSlot].
+    private val liftX = FloatArray(2)
+    private val liftY = FloatArray(2)
+    private val liftT = LongArray(2) { Long.MIN_VALUE }
+
     fun setGeometry(g: KeyboardGeometry, tapMaxDispPx: Float) {
         geometry = g
         tapDispKw = tapMaxDispPx / g.keyWidthPx
@@ -82,7 +87,7 @@ class GestureEngine(private val listener: Listener) {
 
         // The letter block's centre, not half the view: with side padding the keys do not span
         // the view.
-        var slot = if (xPx < g.midlinePx) 0 else 1
+        var slot = resumeSlot(xPx, yPx, t, g) ?: if (xPx < g.midlinePx) 0 else 1
         if (streams[slot] != null) slot = 1 - slot
         if (streams[slot] != null) return false
         val streamId = if (slot == 0) StreamId.LEFT else StreamId.RIGHT
@@ -127,6 +132,12 @@ class GestureEngine(private val listener: Listener) {
         val other = streams[1 - slotByPointer[pointerId]]
         if (g != null && other != null) DecodeTrace.log { nearLine("up", stream.streamId, xPx, yPx, other, g) }
         val token = stream.finish(t)
+        val slot = slotByPointer[pointerId]
+        if (slot != -1 && token.tEnd - token.tStart > ContactRepair.BLIP_MAX_MS) {
+            liftX[slot] = xPx
+            liftY[slot] = yPx
+            liftT[slot] = t
+        }
         release(pointerId)
         observer?.onUp(pointerId, xPx, yPx, t, token)
         listener.onTokenFinalized(token)
@@ -174,6 +185,38 @@ class GestureEngine(private val listener: Listener) {
         if (slot == -1) return null
         val s = streams[slot]
         return if (s != null && s.pointerId == pointerId) s else null
+    }
+
+    /**
+     * The free slot whose thumb lifted just now right where this touch lands, if any.
+     *
+     * With the thumbs about a key apart the touchscreen briefly merges them and then reports
+     * them as fresh touches where they already were (ContactRepair). Assigning those by the
+     * midline alone can hand a thumb the other thumb's stream: the trail changes colour and
+     * the strokes stop lining up with the thumbs that drew them. A touch that lands within
+     * [ContactRepair.RESUME_KW] of a lift no more than [ContactRepair.RESUME_MS] (+ the blip)
+     * ago keeps that slot instead. Blips themselves never record a lift.
+     *
+     * Only after a JOINT lift, both thumbs within [ContactRepair.END_SYNC_MS] of each other,
+     * which is the merge's signature: one thumb lifting near the centre and the other landing
+     * beside it a moment later is ordinary alternation ("gh" in "right") and keeps the
+     * midline rule.
+     */
+    private fun resumeSlot(xPx: Float, yPx: Float, t: Long, g: KeyboardGeometry): Int? {
+        if (liftT[0] == Long.MIN_VALUE || liftT[1] == Long.MIN_VALUE) return null
+        if (kotlin.math.abs(liftT[0] - liftT[1]) > ContactRepair.END_SYNC_MS) return null
+        var best: Int? = null
+        var bestD = ContactRepair.RESUME_KW * g.keyWidthPx
+        for (s in 0..1) {
+            if (streams[s] != null || liftT[s] == Long.MIN_VALUE) continue
+            val dt = t - liftT[s]
+            if (dt < 0 || dt > ContactRepair.RESUME_MS + ContactRepair.BLIP_MAX_MS) continue
+            val dx = xPx - liftX[s]
+            val dy = yPx - liftY[s]
+            val d = kotlin.math.sqrt(dx * dx + dy * dy)
+            if (d <= bestD) { bestD = d; best = s }
+        }
+        return best
     }
 
     private fun release(pointerId: Int) {
