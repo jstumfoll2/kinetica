@@ -89,10 +89,15 @@ object KineticaConstants {
      * doubled, and each reading that doubles it scores [HELD_DOUBLE_BOOST] times. Readings that
      * double nothing held keep their score; a reading one letter short of a doubled word also
      * offers that word. A boost of 1 turns it off.
+     *
+     * Replay of the developer's four batches (4,127 labelled words, 620 with a double, 2026-10-08):
+     * boost 2 gained `weed` and lost `dance` (to `darkness`); 3 also lost `matter` to `marr`;
+     * a last-key 120 ms gained `uhh` but lost three words. Charging unheld doubles 0.5 took the
+     * double-letter bucket from 496 to 268 top-1, so a missing hold is never charged.
      */
     const val HELD_DOUBLE_MS = 250L
     const val HELD_DOUBLE_END_MS = 150L
-    const val HELD_DOUBLE_BOOST = 3f
+    const val HELD_DOUBLE_BOOST = 2f
 
     /**
      * Whether two-thumb overlapped input is decoded on one timeline
