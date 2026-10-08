@@ -64,6 +64,15 @@ class WordPredictor(
     private val interleave: Boolean = KineticaConstants.INTERLEAVE_ENABLED,
     /** Scale of interleaved scores against cut-and-merge ones; see [withInterleaved]. */
     private val interleaveWeight: Float = KineticaConstants.INTERLEAVE_WEIGHT,
+    /** What a reading that doubles a held key scores times; see [preferHeldDoubles]. 1 is off. */
+    private val heldDoubleBoost: Float = KineticaConstants.HELD_DOUBLE_BOOST,
+    private val heldDoubleMs: Long = KineticaConstants.HELD_DOUBLE_MS,
+    private val heldDoubleEndMs: Long = KineticaConstants.HELD_DOUBLE_END_MS,
+    /**
+     * What a swiped reading that doubles a letter nobody held keeps of its score. 1 (the
+     * shipping value) charges nothing; below 1 is for the replay harness to measure the cost.
+     */
+    private val heldDoubleMissKeep: Float = 1f,
 ) {
     /** The letters this predictor's trie and geometry are spelled in. */
     val alphabet: Alphabet get() = trie.alphabet
@@ -304,12 +313,68 @@ class WordPredictor(
         beam: Boolean = true,
         apostrophe: Boolean = false,
     ): List<WordCandidate> {
-        val ranked = decodeLetters(input, context, beam)
-        if (!apostrophe && input.none { it is SwipeToken && it.apostrophe }) return ranked
+        val letters = decodeLetters(input, context, beam)
         val prevWord = context.lastOrNull()?.let { AccentFolder.fold(it.lowercase()) }
-        val out = preferApostrophe(ranked, prevWord?.let { trie.nodeFor(it) } ?: -1)
+        val prevWordId = prevWord?.let { trie.nodeFor(it) } ?: -1
+        val held = if (heldDoubleBoost == 1f) IntArray(0) else HeldDoubles.heldKeys(input, heldDoubleMs, heldDoubleEndMs)
+        val missCharged = heldDoubleMissKeep != 1f && input.any { it is SwipeToken }
+        val ranked = if (held.isEmpty() && !missCharged) letters else preferHeldDoubles(letters, held, prevWordId).also { out ->
+            DecodeTrace.log { "held$langTag: ${held.joinToString("") { alphabet.charOf(it).toString() }} " + out.take(5).joinToString(" ") { it.word } }
+        }
+        if (!apostrophe && input.none { it is SwipeToken && it.apostrophe }) return ranked
+        val out = preferApostrophe(ranked, prevWordId)
         DecodeTrace.log { "apostrophe$langTag: " + out.take(5).joinToString(" ") { it.word } }
         return out
+    }
+
+    /**
+     * The list re-ranked for a swipe that held on [held] keys ([HeldDoubles]).
+     *
+     * A doubled letter costs no path, so "hello" and "helo" fit a swipe alike and the hold is
+     * the only thing that tells them apart. Each reading that doubles a held letter scores
+     * [heldDoubleBoost] times; the rest keep their score. A reading that has a held letter
+     * once also offers its doubled spelling ("god" -> "good") with the same geometry and the
+     * variant's own frequency, as [preferApostrophe] does, since the list may have cut it.
+     */
+    private fun preferHeldDoubles(list: List<WordCandidate>, held: IntArray, prevWordId: Int): List<WordCandidate> {
+        val best = LinkedHashMap<String, WordCandidate>()
+        fun offer(c: WordCandidate) {
+            val have = best[c.word]
+            if (have == null || c.score > have.score) best[c.word] = c
+        }
+        for (c in list) {
+            val base = AccentFolder.fold(c.word.lowercase())
+            val codes = alphabet.encode(base)
+            if (codes == null) {
+                offer(c)
+                continue
+            }
+            offer(
+                when {
+                    held.any { HeldDoubles.doubles(codes, it) } -> c.copy(score = c.score * heldDoubleBoost)
+                    heldDoubleMissKeep != 1f && (1 until codes.size).any { codes[it] == codes[it - 1] } ->
+                        c.copy(score = c.score * heldDoubleMissKeep)
+                    else -> c
+                },
+            )
+            if (c.frequencyWeight <= 0f || c.bigramMultiplier <= 0f) continue
+            for (i in codes.indices) {
+                val h = codes[i]
+                if (h !in held) continue
+                if ((i > 0 && codes[i - 1] == h) || (i + 1 < codes.size && codes[i + 1] == h)) continue
+                val spelled = base.substring(0, i + 1) + base[i] + base.substring(i + 1)
+                val node = trie.nodeFor(spelled)
+                if (node == -1 || !trie.isWord(node)) continue
+                val form = forms[node]?.maxByOrNull { it.freqByte }
+                val fw = KineticaConstants.FREQ_WEIGHT_FLOOR +
+                    (1f - KineticaConstants.FREQ_WEIGHT_FLOOR) * (form?.freqByte ?: trie.frequency(node)) / 255f
+                val bmRaw = bigrams.multiplier(prevWordId, node)
+                val bm = if (c.bigramMultiplier > 1f) bmRaw else 1f
+                val score = c.score / (c.frequencyWeight * c.bigramMultiplier) * fw * bm * heldDoubleBoost
+                offer(c.copy(word = form?.display ?: spelled, score = score, frequencyWeight = fw, bigramMultiplier = bm, wordId = node, segmentation = null))
+            }
+        }
+        return best.values.sortedByDescending { it.score }.take(topK)
     }
 
     /**

@@ -84,6 +84,17 @@ object KineticaConstants {
     const val APOSTROPHE_MISS_KEEP = 0.1f
 
     /**
+     * A doubled letter held on mid-swipe (see [HeldDoubles]): a contact this long on an
+     * interior key, or [HELD_DOUBLE_END_MS] on the swipe's last key, marks that letter as
+     * doubled, and each reading that doubles it scores [HELD_DOUBLE_BOOST] times. Readings that
+     * double nothing held keep their score; a reading one letter short of a doubled word also
+     * offers that word. A boost of 1 turns it off.
+     */
+    const val HELD_DOUBLE_MS = 250L
+    const val HELD_DOUBLE_END_MS = 150L
+    const val HELD_DOUBLE_BOOST = 3f
+
+    /**
      * Whether two-thumb overlapped input is decoded on one timeline
      * ([Interleave]). Measured end to end on the developer's practice traces
      * (replay harness, 2026-10-02): words with two swipes overlapping in time
