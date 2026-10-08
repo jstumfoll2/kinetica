@@ -173,7 +173,25 @@ CONTRACTIONS = {
         "theyre": "they're", "weve": "we've", "youve": "you've",
         "theyve": "they've", "ive": "i've", "im": "i'm", "youll": "you'll",
         "theyll": "they'll", "youd": "you'd", "theyd": "they'd",
+        # Forms the 50k cut lost because their misspelling is rare; their
+        # counts come from CONTRACTION_FULL_LIST_COUNTS.
+        "itll": "it'll", "thatll": "that'll", "therell": "there'll",
+        "wholl": "who'll", "whatll": "what'll", "itd": "it'd",
+        "thatd": "that'd", "whod": "who'd", "whered": "where'd",
+        "whatd": "what'd", "howd": "how'd", "thered": "there'd",
+        "couldve": "could've", "wouldve": "would've", "shouldve": "should've",
+        "mustve": "must've", "whove": "who've", "yall": "y'all",
+        "maam": "ma'am", "oclock": "o'clock",
     },
+}
+# Misspelling counts from the full FrequencyWords en list (en_full.txt, 2018) for
+# contractions whose misspelling the 50k list does not reach, so the estimate
+# below stays offline. Read only when the misspelling is absent from the rows.
+CONTRACTION_FULL_LIST_COUNTS = {
+    "itll": 74, "thatll": 9, "therell": 14, "wholl": 6, "whatll": 5,
+    "itd": 13, "thatd": 6, "whod": 11, "whered": 11, "whatd": 16, "howd": 23,
+    "thered": 11, "couldve": 25, "wouldve": 26, "shouldve": 27, "mustve": 11,
+    "whove": 4, "yall": 34, "oclock": 54,
 }
 # How much more often a contraction is written correctly than misspelled, so
 # freq(X'y) = misspelling(Xy) * this, capped by the stem (see estimate below).
@@ -933,6 +951,8 @@ def contraction_freq(misspelled: str, contracted: str, freq: dict[str, int]) -> 
     proxy: float | None = None
     if misspelled in freq:
         proxy = freq[misspelled] * CONTRACTION_PROXY_RATIO
+    elif misspelled in CONTRACTION_FULL_LIST_COUNTS:
+        proxy = CONTRACTION_FULL_LIST_COUNTS[misspelled] * CONTRACTION_PROXY_RATIO
     elif misspelled in CONTRACTION_ANALOGY:
         sibling, mine, theirs = CONTRACTION_ANALOGY[misspelled]
         if sibling in freq and mine in freq and theirs in freq:
@@ -1006,6 +1026,207 @@ def drop_ocr_existing(lang: str, out_dir: Path, dry_run: bool) -> int:
         LOG.info("dry run: %s %d -> %d rows", path, len(rows), len(kept))
         return 0
     path.write_text("".join(f"{w}\t{c}\n" for w, c in kept), encoding="utf-8")
+    LOG.info("cleaned %s: %d -> %d rows", path, len(rows), len(kept))
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Spell-checker filter (en only)
+# ---------------------------------------------------------------------------
+# OpenSubtitles counts tokens, not words. The 50k list carries clitic stems
+# ("didn", "isn"), run-ons ("goingto", "ofthe"), stutters ("tthe", "sss"),
+# letter pairs ("ii", "ui", "iu", "oo", "dd", "ds", "fs"), dropped-g spellings
+# ("goin", "nothin") and thousands of TV characters' names. A tapped or swiped
+# letter string that the list holds is never autocorrected, so each of them
+# both shows in the bar and stops a typo from being fixed.
+#
+# SCOWL (Spell Checker Oriented Word Lists, http://wordlist.aspell.net, the
+# source of the Hunspell en_US/en_GB dictionaries) decides which entries are
+# words. Its licence is MIT-like (see THIRD_PARTY_NOTICES); only membership is
+# read, every frequency still comes from FrequencyWords. SCOWL grades words by
+# size, 10 (the most common) to 95 (the most obscure).
+#
+#   - 4+ letters: kept at any size up to SCOWL_MAX_SIZE, in any category
+#     (words, proper names, abbreviations, contractions), any spelling
+#     (American, British, Canadian, Australian).
+#   - 2-3 letters: a short string is one or two taps from dozens of others, so
+#     it must be a common word (size <= SCOWL_SHORT_WORD_SIZE), a common name
+#     (<= SCOWL_SHORT_NAME_SIZE) or a common abbreviation
+#     (<= SCOWL_SHORT_ABBREV_SIZE). SCOWL lists "oo" (70), "ou" (80) and "dd"
+#     (abbreviation, 50); all three go.
+#   - 1 letter, apostrophe forms and SPELLCHECK_ALLOW: kept as they are.
+#
+# SCOWL never lists chat words, interjections or new technology terms, which a
+# keyboard needs; SPELLCHECK_ALLOW keeps those that are already in the list.
+SCOWL_MAX_SIZE = 80
+SCOWL_SHORT_WORD_SIZE = 55
+SCOWL_SHORT_NAME_SIZE = 80
+SCOWL_SHORT_ABBREV_SIZE = 40
+SCOWL_SKIP = ("special-roman-numerals", "special-hacker")
+SPELLCHECK_LANGS = {"en"}
+SPELLCHECK_ALLOW = {
+    "en": {
+        # Interjections and spoken forms people do type.
+        "ahh", "ahhh", "aww", "awww", "argh", "eww", "ew", "heh", "hehe", "haha",
+        "hahaha", "hmm", "hmmm", "mmm", "mhm", "ohh", "ohhh", "oops", "shh", "shhh",
+        "uhh", "uhm", "umm", "ugh", "whoa", "woah", "whoo", "woo", "yay", "yeah",
+        "yep", "yup", "nope", "nah", "meh", "wow", "pfft", "grr", "grrr", "oof",
+        "gah", "ehh",
+        # Chat and informal spellings.
+        "ok", "okay", "lol", "lmao", "omg", "idk", "btw", "tbh", "imo", "brb", "thx",
+        "pls", "plz", "ya", "yo", "bro", "sis", "cuz", "lil", "gonna", "wanna",
+        "gotta", "kinda", "sorta", "dunno", "lemme", "gimme", "outta", "oughta",
+        "ain't", "y'all", "dude", "dawg", "badass", "dumbass", "freakin",
+        "frickin", "friggin", "fiance", "fiancee", "meds", "nevermind",
+        # Technology the 2018 subtitles under-count or SCOWL does not list.
+        "app", "apps", "autocorrect", "autocomplete", "backspace", "email",
+        "emails", "emailed", "emoji", "emojis", "online", "offline", "wifi",
+        "smartphone", "selfie", "selfies", "hashtag", "podcast", "podcasts",
+        "livestream", "username", "login", "logout", "website", "websites",
+        "google", "googled", "youtube", "facebook", "instagram", "iphone",
+        "android", "bluetooth", "github", "amazon", "netflix", "texting",
+        "texted", "lockdown", "cyber", "covid", "chatbot", "laptop", "laptops",
+        "touchscreen", "keyboard", "keyboards", "swipe", "swiped", "swiping",
+        "swipes", "unsubscribe", "spam", "blog", "vlog", "wiki", "gps", "usb",
+        "pc", "tv", "dvd", "cpu", "gpu", "ai",
+        # Short names and abbreviations below the short-string bar that people write.
+        "sam", "dan", "jen", "pm", "uk", "phd", "icu", "suv",
+    },
+}
+
+
+def scowl_sizes(scowl_dir: Path) -> dict[str, dict[str, int]]:
+    """Smallest SCOWL size per category for every word in [scowl_dir]/final, accents folded.
+
+    Categories: "word" (words, upper, contractions), "name" (proper-names),
+    "abbrev" (abbreviations). File names are <spelling>-<category>.<size>,
+    Latin-1 encoded.
+    """
+    final = scowl_dir / "final"
+    if not final.is_dir():
+        raise FileNotFoundError(f"no SCOWL final/ directory under {scowl_dir}")
+    sizes: dict[str, dict[str, int]] = {}
+    for path in sorted(final.iterdir()):
+        name, _, size_text = path.name.rpartition(".")
+        if not size_text.isdigit() or any(s in name for s in SCOWL_SKIP):
+            continue
+        size = int(size_text)
+        if size > SCOWL_MAX_SIZE:
+            continue
+        if name.endswith("proper-names"):
+            kind = "name"
+        elif name.endswith("abbreviations"):
+            kind = "abbrev"
+        else:
+            kind = "word"
+        for line in path.read_text(encoding="latin-1").splitlines():
+            word = fold_word(line.strip().lower())
+            if not word:
+                continue
+            have = sizes.setdefault(word, {})
+            if size < have.get(kind, 999):
+                have[kind] = size
+    return sizes
+
+
+def spellcheck_keeps(lang: str, word: str, sizes: dict[str, dict[str, int]]) -> bool:
+    """Whether [word] survives the spell-checker filter (rules above)."""
+    if len(word) <= 1 or "'" in word or word in SPELLCHECK_ALLOW.get(lang, set()):
+        return True
+    have = sizes.get(fold_word(word))
+    if not have:
+        return False
+    if len(word) >= 4:
+        return True
+    return (
+        have.get("word", 999) <= SCOWL_SHORT_WORD_SIZE
+        or have.get("name", 999) <= SCOWL_SHORT_NAME_SIZE
+        or have.get("abbrev", 999) <= SCOWL_SHORT_ABBREV_SIZE
+    )
+
+
+def spellcheck_filter(
+    lang: str, rows: list[tuple[str, int]], sizes: dict[str, dict[str, int]]
+) -> tuple[list[tuple[str, int]], list[tuple[str, int]]]:
+    """([rows] kept, [rows] dropped) under the spell-checker filter, order preserved."""
+    if lang not in SPELLCHECK_LANGS:
+        return rows, []
+    kept: list[tuple[str, int]] = []
+    dropped: list[tuple[str, int]] = []
+    for w, c in rows:
+        (kept if spellcheck_keeps(lang, w, sizes) else dropped).append((w, c))
+    return kept, dropped
+
+
+# Common words the 50k cut left out ("backspace" sits at 12 in the full list).
+# A word from the full FrequencyWords list joins when SCOWL grades it common
+# (size <= EXTEND_MAX_SIZE) and the subtitles use it at least EXTEND_MIN_COUNT
+# times; the count is the full list's own, so it ranks below every 50k word.
+EXTEND_MAX_SIZE = 35
+EXTEND_MIN_COUNT = 10
+
+
+def extend_from_full(
+    lang: str,
+    rows: list[tuple[str, int]],
+    full_raw: str,
+    sizes: dict[str, dict[str, int]],
+    word_re: re.Pattern[str],
+) -> list[tuple[str, int]]:
+    """[rows] plus the common SCOWL words of the full FrequencyWords list they lack."""
+    have = {w for w, _ in rows}
+    allow = SPELLCHECK_ALLOW.get(lang, set())
+    added: list[tuple[str, int]] = []
+    for line in full_raw.splitlines():
+        parts = line.split()
+        if len(parts) != 2 or not parts[1].isdigit():
+            continue
+        word, count = normalise(lang, parts[0].lower()), int(parts[1])
+        if count < EXTEND_MIN_COUNT:
+            break
+        if word in have or len(word) > MAX_WORD_LEN or not word_re.match(word):
+            continue
+        graded = sizes.get(fold_word(word), {}).get("word", 999) <= EXTEND_MAX_SIZE
+        if (graded and len(word) >= 4) or word in allow:
+            added.append((word, count))
+            have.add(word)
+    LOG.info("%s: extended by %d common words from the full list", lang, len(added))
+    return sorted(rows + added, key=lambda r: -r[1])
+
+
+def spellcheck_existing(
+    lang: str, out_dir: Path, scowl_dir: Path, full_file: Path | None, dry_run: bool
+) -> int:
+    """Offline over the committed <lang>_wordlist.txt and <lang>_bigrams.txt: the
+    spell-checker filter, the full-list extension when [full_file] is given, and
+    the bigram rows whose words left the list."""
+    if lang not in SPELLCHECK_LANGS:
+        LOG.error("%s has no spell-checker filter", lang)
+        return 1
+    path = out_dir / f"{lang}_wordlist.txt"
+    rows = [
+        (w, int(c))
+        for w, c in (line.split("\t") for line in path.read_text(encoding="utf-8").splitlines())
+    ]
+    sizes = scowl_sizes(scowl_dir)
+    kept, dropped = spellcheck_filter(lang, rows, sizes)
+    LOG.info("spell-checker filter: dropped %d of %d", len(dropped), len(rows))
+    for w, c in dropped[:60]:
+        LOG.info("  - %s %d", w, c)
+    if full_file is not None:
+        kept = extend_from_full(
+            lang, kept, full_file.read_text(encoding="utf-8"), sizes, WORD_RE[lang]
+        )
+    vocab = {w for w, _ in kept}
+    bigrams_path = out_dir / f"{lang}_bigrams.txt"
+    pairs = bigrams_path.read_text(encoding="utf-8").splitlines()
+    kept_pairs = [p for p in pairs if all(t in vocab for t in p.split("\t")[:2])]
+    LOG.info("bigrams: %d -> %d", len(pairs), len(kept_pairs))
+    if dry_run:
+        LOG.info("dry run: %s %d -> %d rows", path, len(rows), len(kept))
+        return 0
+    path.write_text("".join(f"{w}\t{c}\n" for w, c in kept), encoding="utf-8")
+    bigrams_path.write_text("".join(p + "\n" for p in kept_pairs), encoding="utf-8")
     LOG.info("cleaned %s: %d -> %d rows", path, len(rows), len(kept))
     return 0
 
@@ -1165,6 +1386,24 @@ def main() -> int:
         "such as aii (all) and iike (like)",
     )
     parser.add_argument(
+        "--scowl-dir",
+        type=Path,
+        help="en: an unpacked SCOWL release (http://wordlist.aspell.net); its final/ "
+        "lists decide which entries are words (the spell-checker filter)",
+    )
+    parser.add_argument(
+        "--full-wordlist-file",
+        type=Path,
+        help="en, with --scowl-dir: local copy of the FrequencyWords <lang>_full.txt; "
+        "common words the 50k list lacks are added from it",
+    )
+    parser.add_argument(
+        "--spellcheck-existing",
+        action="store_true",
+        help="offline over the committed <lang>_wordlist.txt and <lang>_bigrams.txt: "
+        "the spell-checker filter (needs --scowl-dir)",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="report what would be written without writing files",
@@ -1181,6 +1420,14 @@ def main() -> int:
 
     if args.drop_ocr_confusions:
         return drop_ocr_existing(lang, args.out_dir, args.dry_run)
+
+    if args.spellcheck_existing:
+        if args.scowl_dir is None:
+            LOG.error("--spellcheck-existing needs --scowl-dir")
+            return 1
+        return spellcheck_existing(
+            lang, args.out_dir, args.scowl_dir, args.full_wordlist_file, args.dry_run
+        )
 
     if args.clean_diacritics:
         if lang not in DIACRITIC_LANGS:
@@ -1238,6 +1485,16 @@ def main() -> int:
 
     unigrams = drop_ocr_confusions(lang, unigrams)
     unigrams = augment_contractions(unigrams, lang, refresh=args.refresh_contractions)
+    # After the contractions: their estimates read clitic stems ("didn") the filter drops.
+    if args.scowl_dir is not None and lang in SPELLCHECK_LANGS:
+        sizes = scowl_sizes(args.scowl_dir)
+        unigrams, dropped = spellcheck_filter(lang, unigrams, sizes)
+        LOG.info("spell-checker filter: dropped %d", len(dropped))
+        if args.full_wordlist_file is not None:
+            unigrams = extend_from_full(
+                lang, unigrams, args.full_wordlist_file.read_text(encoding="utf-8"),
+                sizes, word_re,
+            )
 
     vocab = {w for w, _ in unigrams}
     try:
