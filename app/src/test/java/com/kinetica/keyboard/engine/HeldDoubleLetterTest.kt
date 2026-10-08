@@ -82,15 +82,22 @@ class HeldDoubleLetterTest {
 
     @Test
     fun anInteriorHoldMarksItsKey() {
-        assertEquals("o", held(heldSwipe("god", 1, 300)))
-        assertEquals("", held(heldSwipe("god", -1, 0)))
-        assertEquals("", held(heldSwipe("god", 1, KineticaConstants.HELD_DOUBLE_MS - 80)))
+        assertEquals("l", held(heldSwipe("holy", 2, 300)))
+        assertEquals("", held(heldSwipe("holy", -1, 0)))
+        assertEquals("", held(heldSwipe("holy", 2, KineticaConstants.HELD_DOUBLE_MS - 80)))
     }
 
     @Test
     fun theLandingNeverCountsAndTheLastKeyNeedsLess() {
         assertEquals("", held(heldSwipe("god", 0, 400)))
         assertEquals("o", held(heldSwipe("to", 1, KineticaConstants.HELD_DOUBLE_END_MS)))
+    }
+
+    @Test
+    fun aTurnBackNeedsALongerHold() {
+        // a-n-a turns on n: the thumb stops there whatever it meant.
+        assertEquals("", held(heldSwipe("ana", 1, 300)))
+        assertEquals("n", held(heldSwipe("ana", 1, 2 * KineticaConstants.HELD_DOUBLE_MS)))
     }
 
     @Test
@@ -102,7 +109,7 @@ class HeldDoubleLetterTest {
 
     @Test
     fun aThumbParkedWhileTheOtherTypesIsNoHold() {
-        val left = heldSwipe("god", 1, 400, stream = StreamId.LEFT)
+        val left = heldSwipe("holy", 2, 400, stream = StreamId.LEFT)
         val other = TestData.tap('p', g, left.tStart + 120, StreamId.RIGHT)
         assertEquals("", held(left, other))
     }

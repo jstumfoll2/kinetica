@@ -19,7 +19,9 @@ import com.kinetica.keyboard.engine.models.TapToken
  *
  * A swipe's last contact runs to the lift, and the thumb slows into it anyway (median 62 ms on
  * single final letters, 114 ms on doubled ones), so it has its own, shorter threshold. The
- * first contact is the landing and never counts. A tap held as long as an interior contact
+ * first contact is the landing and never counts. A key the swipe turns back on needs twice the
+ * time: a slow 600 ms "ana" stopped 320 ms on its turn (NonLatinDictionaryTest), and only 4 of
+ * the 26 held doubles on 2026-10-08 were turns back. A tap held as long as an interior contact
  * counts too (doubled taps on 2026-10-08: 5% held 250 ms or more, single taps none). A swipe
  * that never leaves its key does not: single letters were held that way as often as doubles.
  * A contact or tap while another token is down is a thumb parked for the other one, not a
@@ -37,10 +39,15 @@ internal object HeldDoubles {
             }
             if (t !is SwipeToken) continue
             val cs = t.keyContacts
-            for (i in 1 until cs.size) {
+            val n = cs.size
+            for (i in 1 until n) {
                 val c = cs[i]
-                val need = if (i == cs.size - 1) endMs else midMs
-                if (c.tExit - c.tEnter < need) continue
+                val last = i == n - 1
+                val dur = c.tExit - c.tEnter
+                // A turn back the way the swipe came ("ana", "good") slows to a stop on its key
+                // whatever the typist meant, so it has to be held twice as long.
+                val turnBack = !last && cs[i - 1].code == cs[i + 1].code
+                if (dur < if (last) endMs else if (turnBack) 2 * midMs else midMs) continue
                 if (overlapsOther(tokens, t, c.tEnter, c.tExit)) continue
                 if (c.code !in out) out += c.code
             }
