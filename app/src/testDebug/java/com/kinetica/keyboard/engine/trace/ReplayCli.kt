@@ -1,6 +1,7 @@
 package com.kinetica.keyboard.engine.trace
 
 import com.kinetica.keyboard.engine.CtcScorer
+import com.kinetica.keyboard.engine.KineticaConstants
 import java.io.File
 
 /**
@@ -56,11 +57,21 @@ object ReplayCli {
                 }
             }
             "ranks" -> {
-                // ranks [--ilw W] FILE...: one tab-separated row per scored line, for slicing.
+                // ranks [--ilw W] [--hdb B] [--hdms MS] [--hdend MS] [--hdmiss K] FILE...: one tab-separated
+                // row per scored line, for slicing. --hd* set the held-double-letter terms.
                 val ilw = opt(a, "--ilw")?.toFloat()
+                val hdb = opt(a, "--hdb")?.toFloat() ?: KineticaConstants.HELD_DOUBLE_BOOST
+                val hdms = opt(a, "--hdms")?.toLong() ?: KineticaConstants.HELD_DOUBLE_MS
+                val hdend = opt(a, "--hdend")?.toLong() ?: KineticaConstants.HELD_DOUBLE_END_MS
+                val hdmiss = opt(a, "--hdmiss")?.toFloat() ?: 1f
                 if (a.isEmpty()) usage()
-                val h = if (ilw == null) ReplayHarness(assets) else
-                    ReplayHarness(assets, interleave = ilw > 0f, interleaveWeight = ilw)
+                val h = ReplayHarness(
+                    assets,
+                    interleave = ilw?.let { it > 0f } ?: KineticaConstants.INTERLEAVE_ENABLED,
+                    interleaveWeight = ilw ?: KineticaConstants.INTERLEAVE_WEIGHT,
+                    heldDoubleBoost = hdb, heldDoubleMs = hdms, heldDoubleEndMs = hdend,
+                    heldDoubleMissKeep = hdmiss,
+                )
                 val sink = ReplayReport(h.deepK)
                 for (f in a.map { File(it) }) for ((n, w) in read(f, sink)) {
                     val r = try { h.replay(w) } catch (e: RuntimeException) { continue }

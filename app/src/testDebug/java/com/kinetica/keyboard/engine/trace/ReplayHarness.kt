@@ -48,6 +48,11 @@ class ReplayHarness(
     /** Interleaved two-thumb reading: off, or on at this weight (null = engine default). */
     private val interleave: Boolean = com.kinetica.keyboard.engine.KineticaConstants.INTERLEAVE_ENABLED,
     private val interleaveWeight: Float = com.kinetica.keyboard.engine.KineticaConstants.INTERLEAVE_WEIGHT,
+    /** Held-key double letters: boost (1 = off) and the interior and last-key hold times. */
+    private val heldDoubleBoost: Float = KineticaConstants.HELD_DOUBLE_BOOST,
+    private val heldDoubleMs: Long = KineticaConstants.HELD_DOUBLE_MS,
+    private val heldDoubleEndMs: Long = KineticaConstants.HELD_DOUBLE_END_MS,
+    private val heldDoubleMissKeep: Float = 1f,
 ) {
     private class Dict(val d: LoadedDictionary, val bigrams: BigramTable)
 
@@ -84,6 +89,8 @@ class ReplayHarness(
             d.d.trie, d.bigrams, g, d.d.forms, language = lang, topK = topK,
             reranker = r, rerankDepth = rerankDepth,
             interleave = interleave, interleaveWeight = interleaveWeight,
+            heldDoubleBoost = heldDoubleBoost, heldDoubleMs = heldDoubleMs, heldDoubleEndMs = heldDoubleEndMs,
+            heldDoubleMissKeep = heldDoubleMissKeep,
         )
     }
 
