@@ -1,0 +1,12 @@
+INFO downloading https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/en/en_50k.txt
+INFO ocr confusions dropped: 40
+INFO en: added 60 contraction forms, refreshed 0
+INFO spell-checker filter: dropped 7594
+INFO en: extended by 11417 common words from the full list
+INFO downloading https://downloads.tatoeba.org/exports/per_language/eng/eng_sentences.tsv.bz2
+INFO tatoeba: 2038137 sentences, 1298927 distinct bigrams
+INFO unigrams: 50560 (min required 30000)
+INFO bigrams:  100000
+INFO wrote out/en_gb_variants.txt (509 pairs)
+INFO wrote out/en_wordlist.txt (50560 rows)
+INFO wrote out/en_bigrams.txt (100000 rows)
