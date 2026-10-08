@@ -695,8 +695,58 @@ class WordPredictor(
      * turn Italian `conquesta` into English `conquests`. With one language they are the same
      * candidate, so single-language autocorrect is unchanged.
      */
-    fun tapAutocorrect(literal: String, lead: WordCandidate?, confidenceThreshold: Float): WordCandidate? =
-        autocorrectTarget(literal, listOfNotNull(lead), confidenceThreshold)
+    fun tapAutocorrect(
+        literal: String,
+        lead: WordCandidate?,
+        confidenceThreshold: Float,
+        candidates: List<WordCandidate> = emptyList(),
+    ): WordCandidate? =
+        if (isWord(literal)) {
+            // The lead first, then the rest of its language's list in rank order: for tapped
+            // `eben` the decode ranks `been` (a transposition) a hair above `even`.
+            (listOfNotNull(lead) + candidates.filter { lead != null && it.language == lead.language })
+                .firstNotNullOfOrNull { realWordCorrection(literal, it, confidenceThreshold) }
+        } else {
+            autocorrectTarget(literal, listOfNotNull(lead), confidenceThreshold)
+        }
+
+    /**
+     * The correction for tapped letters that spell a word, but a rare one sitting one key from a
+     * far more common word: `iy` (185 in the subtitle corpus) for `it` (13.6 million), `eben`
+     * (366) for `even` (744 544). [autocorrectTarget] never touches a dictionary word, and the
+     * list holds thousands of these strings, so the typo stayed.
+     *
+     * Narrow on purpose, since a real rare word must survive: the letters are at most
+     * [KineticaConstants.REAL_WORD_MAX_LEN] long and differ from [lead] in exactly one letter,
+     * the literal's frequency byte is at most [KineticaConstants.REAL_WORD_MAX_FREQ_BYTE], the
+     * lead's is [KineticaConstants.REAL_WORD_MIN_FREQ_GAP] bytes above it (about 400 times as
+     * frequent), the geometric confidence clears the threshold as for any autocorrect, and the
+     * user has not committed the letters as often as [KineticaConstants.PERSONAL_MERGE_MIN_COUNT]
+     * asks of a word they mean (one commit can be the uncorrected typo itself: `thr` and `tbe`
+     * sit at one in a real learned list). The caller adds what only it knows.
+     */
+    fun realWordCorrection(literal: String, lead: WordCandidate?, confidenceThreshold: Float): WordCandidate? {
+        if (lead == null || lead.source == WordCandidate.Source.COMPLETION) return null
+        val typed = literal.lowercase()
+        val target = lead.word.lowercase()
+        if (typed.length > KineticaConstants.REAL_WORD_MAX_LEN || !oneLetterApart(typed, target)) return null
+        if (personalCount(typed) >= KineticaConstants.PERSONAL_MERGE_MIN_COUNT) return null
+        // `whos` is `who's` without its apostrophe, not a typo for `whoa`.
+        if ((1 until typed.length).any { isWord(typed.substring(0, it) + "'" + typed.substring(it)) }) return null
+        val typedByte = frequencyByte(typed)
+        if (typedByte < 0 || typedByte > KineticaConstants.REAL_WORD_MAX_FREQ_BYTE) return null
+        val targetByte = frequencyByte(target)
+        if (targetByte - typedByte < KineticaConstants.REAL_WORD_MIN_FREQ_GAP) return null
+        val confidence = 1f / (1f + lead.dtwDistance)
+        return if (confidence > confidenceThreshold) lead else null
+    }
+
+    private fun oneLetterApart(a: String, b: String): Boolean {
+        if (a.length != b.length) return false
+        var diff = 0
+        for (i in a.indices) if (a[i] != b[i] && ++diff > 1) return false
+        return diff == 1
+    }
 
     private fun transposedPatterns(pattern: List<Matcher>): List<List<Matcher>> {
         val out = ArrayList<List<Matcher>>()

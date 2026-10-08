@@ -629,6 +629,16 @@ object KineticaConstants {
     const val AUTOCORRECT_CONF_NORMAL = 0.85f
     const val AUTOCORRECT_CONF_AGGRESSIVE = 0.80f
 
+    // Real-word autocorrect (WordPredictor.realWordCorrection): tapped letters that are a rare
+    // dictionary word one letter from a common one. A byte is ln(1 + count) on a 0..255 scale
+    // against the list's top count, about 0.067 nats per byte on the English list, so 90 is
+    // a corpus count near 430 (`iy` 77, `eben` 87) and a gap of 90 is about 400 times the
+    // frequency (`it` 243, `even` 200). Four letters at most: past that the list's rare words
+    // one key from common ones are mostly real (wafer/water, excise/excuse).
+    const val REAL_WORD_MAX_LEN = 4
+    const val REAL_WORD_MAX_FREQ_BYTE = 90
+    const val REAL_WORD_MIN_FREQ_GAP = 90
+
     // Per-word cross-language ranking (WordComposer.merge) has no constants of its own:
     // - No cross-dictionary frequency normalisation is needed. Each asset is log-quantised
     //   against its own maximum, and fw at matched rank percentiles agrees within 1.04-1.07x
