@@ -300,14 +300,7 @@
     <!-- The enabled set's default: every language but the experimental ones (Prefs). -->
     <string-array name="language_default_values" translatable="false">
         <item>en</item>
-        <item>it</item>
         <item>es</item>
-        <item>pl</item>
-        <item>cs</item>
-        <item>nl</item>
-        <item>de</item>
-        <item>fr</item>
-        <item>no</item>
     </string-array>
 
 

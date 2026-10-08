@@ -94,7 +94,7 @@ object Prefs {
      * How long a swiped word waits before its automatic space arrives.
      *
      * Keeps the key of the old single delay: a user who moved that slider was most likely tuning
-     * the swipe autospace, the older path and the one on by default. The tap delay reads this as
+     * the swipe autospace, the older path. The tap delay reads this as
      * its own default, so an untouched keyboard keeps its old timing.
      */
     const val AUTOSPACE_DELAY_MS = "pref_autospace_delay_ms"
@@ -142,8 +142,8 @@ object Prefs {
      * clock running, and the buffer keeps its real gesture geometry instead of being rebuilt
      * from letters.
      *
-     * Off by default: the user must end every word, and a word left open keeps offering
-     * candidates until a delimiter arrives.
+     * On by default, with [AUTOSPACE] off: the user ends every word, and a word left open keeps
+     * offering candidates until a delimiter arrives.
      */
     const val WORD_ENDS_ON_SPACE = "pref_word_ends_on_space"
 
@@ -245,7 +245,7 @@ object Prefs {
 
     /**
      * Implicit directional alternate swipes: a top-row letter's up-swipe inserts its digit, a
-     * bottom-row letter's down-swipe its symbol. Off by default because letter-key swipes share
+     * bottom-row letter's down-swipe its symbol. On by default, though letter-key swipes share
      * the typing surface.
      */
     const val ALTERNATE_SWIPES = "pref_alternate_swipes"
@@ -337,7 +337,7 @@ object Prefs {
 
     /**
      * Optional apostrophe key: a narrow "'" in the free home-row padding right of "L", for elided
-     * and contracted words (nell'immagine, don't) without the symbols layer. Off by default.
+     * and contracted words (nell'immagine, don't) without the symbols layer. On by default.
      */
     const val APOSTROPHE_KEY = "pref_apostrophe_key"
 
@@ -411,13 +411,13 @@ object Prefs {
      */
     const val THEME_HUE = "pref_theme_hue"
 
-    const val DEFAULT_HEIGHT_PCT = 35
+    const val DEFAULT_HEIGHT_PCT = 20
 
     /**
-     * 45% of a Pixel 7 held sideways, about 390 dp, is a 44 dp row, near the portrait key's
-     * 41 dp width. Key width comes from [DEFAULT_LANDSCAPE_SPLIT_GAP_PCT] in split.
+     * Held sideways the screen is short, so the dp floor in KeyboardHeights.minPx usually decides
+     * the real height. Key width comes from [DEFAULT_LANDSCAPE_SPLIT_GAP_PCT] in split.
      */
-    const val DEFAULT_HEIGHT_PCT_LANDSCAPE = 45
+    const val DEFAULT_HEIGHT_PCT_LANDSCAPE = 19
 
     /** Split, because both thumbs hold a phone turned sideways at its two ends. */
     const val DEFAULT_LANDSCAPE_ARRANGEMENT = "split"
@@ -439,7 +439,7 @@ object Prefs {
      */
     const val MIN_HEIGHT_PCT = 10
     const val MAX_HEIGHT_PCT = 50
-    const val DEFAULT_AUTOSPACE = true
+    const val DEFAULT_AUTOSPACE = false
     const val DEFAULT_AUTO_CAPITALIZE = true
     const val DEFAULT_AUTOSPACE_DELAY_MS = 300
 
@@ -461,7 +461,7 @@ object Prefs {
     // swipe that has not yet moved 12 dp opens the popup instead.
     const val LONG_PRESS_MIN_MS = 25
     const val LONG_PRESS_MAX_MS = 700
-    const val DEFAULT_WORD_ENDS_ON_SPACE = false
+    const val DEFAULT_WORD_ENDS_ON_SPACE = true
     const val DEFAULT_AUTOSPACE_TAPPED_WORDS = false
     const val DEFAULT_ZEN = false
     const val DEFAULT_VIBRATION = true
@@ -479,10 +479,10 @@ object Prefs {
      * this wait; the `chord missed` trace lines measure it.
      */
     const val DEFAULT_SPACE_CHORD_ARM_MS = 50
-    const val DEFAULT_RETYPE_AVOIDS_REJECTED = false
+    const val DEFAULT_RETYPE_AVOIDS_REJECTED = true
     const val DEFAULT_AUTOCORRECT_LEVEL = "normal"
     const val DEFAULT_REINFORCE_INCREMENT = "medium"
-    const val DEFAULT_EMOJI_KEY = false
+    const val DEFAULT_EMOJI_KEY = true
     const val DEFAULT_NUMBER_PRIORITY = true
 
     /** Full width, the mode the one-handed toggle leaves and returns to. */
@@ -516,7 +516,7 @@ object Prefs {
     const val DEFAULT_LEARN_PHRASES = false
     const val DEFAULT_NEXT_WORD = true
     const val DEFAULT_RECENT_WORDS = false
-    const val DEFAULT_NUMBER_ROW = false
+    const val DEFAULT_NUMBER_ROW = true
     const val DEFAULT_ENTER_ALTERNATES = "? ! ,"
     const val DEFAULT_APOSTROPHE_KEY = true
     const val DEFAULT_COMMA_MODE = "keep"
@@ -526,7 +526,7 @@ object Prefs {
     const val DEFAULT_THEME_MODE = "default"
     const val DEFAULT_THEME_COLOR = "#5468FF"
     const val DEFAULT_THEME_BRIGHTNESS = "dark"
-    const val DEFAULT_AUTO_DETECT_LANGUAGE = false
+    const val DEFAULT_AUTO_DETECT_LANGUAGE = true
     const val DEFAULT_SYNC_SYSTEM_LANGUAGE = true
     const val DEFAULT_BRITISH_SPELLING = false
 
@@ -558,6 +558,10 @@ object Prefs {
      */
     val EXPERIMENTAL_LANGUAGES = setOf("ru", "he", "ar", "uk")
 
-    /** What an unset enabled-languages preference means: every language but the experimental. */
-    val DEFAULT_ENABLED_LANGUAGES = ALL_LANGUAGES.filter { it !in EXPERIMENTAL_LANGUAGES }
+    /**
+     * What an unset enabled-languages preference means: English and Spanish, the pair the
+     * maintainer's own keyboard runs with [DEFAULT_AUTO_DETECT_LANGUAGE] on. Auto-detect mixes in
+     * the first enabled language after the active one, so this also picks that second language.
+     */
+    val DEFAULT_ENABLED_LANGUAGES = listOf("en", "es")
 }

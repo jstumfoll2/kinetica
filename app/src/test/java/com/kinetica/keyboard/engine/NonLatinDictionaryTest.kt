@@ -166,6 +166,5 @@ class NonLatinDictionaryTest {
         }
         // Appended, never inserted: the nine before them keep their order.
         assertEquals(listOf("en", "it", "es", "pl", "cs", "nl", "de", "fr", "no"), Prefs.ALL_LANGUAGES.take(9))
-        assertEquals(Prefs.ALL_LANGUAGES.take(9), Prefs.DEFAULT_ENABLED_LANGUAGES)
     }
 }
