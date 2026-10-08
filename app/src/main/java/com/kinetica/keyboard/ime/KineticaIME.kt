@@ -241,6 +241,19 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
     // once at commit to keep a re-commit of unchanged text from being learned
     // twice; see learnsOnCommit.
     private var reloadedWord: String? = null
+    // Whether that reload came from the user's own editing (a backspace or a cursor placed at a
+    // word's end) rather than an autospace taken back. A word edited by hand keeps its letters.
+    private var reloadedByHand = false
+    // What the bar showed when the reloaded word was committed, while the reload is untouched.
+    private var reloadHistory: CommitHistory.Record? = null
+    /**
+     * Typed letters whose autocorrect the user took back with a backspace, lowercased, oldest
+     * first. They are not corrected again while the keyboard runs, so an acronym or a name
+     * undone once is not rewritten at every delimiter after it.
+     */
+    private val rejectedCorrections = LinkedHashSet<String>()
+    // The last commit, lowercased, while the +1 it earned can still be taken back by deleting it.
+    private var lastCommitLearned: String? = null
 
     // The one-shot Ctrl: set by CTRL_NEXT, spent by the next key.
     private var ctrlPending = false
@@ -1239,6 +1252,8 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
         lastTentative = tentative
         lastLiteral = literal
         candidateLanguages = provenanceOf(candidates)
+        // A pick from a reopened word's old bar is learned where that spelling came from.
+        if (seededWithoutTokens) reloadHistory?.let { candidateLanguages = it.languages + candidateLanguages }
         if (!editorState.privateMode) {
             pushSuggestions()
         }
@@ -1814,7 +1829,9 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
             leavesAccentsOff = predictor?.leavesAccentsOff(typed) == true,
             blocked = typed.lowercase() in blockedSpellings,
         )
-        val decoded = lastCandidates.map { displayWord(it.word) }
+        val decoded = lastCandidates.map { displayWord(it.word) }.let {
+            if (seededWithoutTokens) reloadWords(it, reloadHistory, tentativeWord) else it
+        }
         suggestionBar?.setSuggestions(
             suggestionZoneWords(notBlocked(midWordWords(decoded, midWordHistory, midWordOffer), blockedSpellings), literal)
                 .map { barSuggestion(it) },
@@ -1856,9 +1873,37 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
         expectAfter(span, undo.typed.length)
         autospaceInserted = false
         unlearnWord(undo.corrected)
+        lastCommitLearned = null
+        rememberRejectedCorrection(undo.typed)
         DecodeTrace.log { "  autocorrect undo word=${undo.corrected} typed=${undo.typed}" }
         updateAutoShift()
         return true
+    }
+
+    private fun rememberRejectedCorrection(typed: String) {
+        val t = typed.lowercase()
+        if (t.isEmpty()) return
+        rejectedCorrections.remove(t)
+        rejectedCorrections.add(t)
+        while (rejectedCorrections.size > REJECTED_CORRECTIONS_MAX) {
+            rejectedCorrections.remove(rejectedCorrections.first())
+        }
+    }
+
+    /**
+     * Whether tapped letters the active dictionary holds as a rare word are more than that
+     * elsewhere: a common word in another resident language (`dir` is rare English, common
+     * Spanish), or a word the user has committed in any language as often as the merge floor
+     * asks (one commit can be the uncorrected typo itself). A real-word correction must not
+     * fire on either.
+     */
+    private fun heldOutsideActive(literal: String): Boolean {
+        val w = literal.lowercase()
+        val floor = KineticaConstants.PERSONAL_MERGE_MIN_COUNT
+        if (listOf(personalCounts, secondaryCounts, extraCounts).any { (it[w] ?: 0) >= floor }) return true
+        return listOfNotNull(secondaryPredictor, extraPredictor).any {
+            it.frequencyByte(w) > KineticaConstants.REAL_WORD_MAX_FREQ_BYTE
+        }
     }
 
     /**
@@ -2358,7 +2403,10 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
         // while retyped, against `biologia`, thirteen times more frequent.
         // Only the commit case, 37 of 41 retypes in that capture: the other cases have no
         // committed word, and 85% of retypes reject the word itself.
-        if (src == "commit") committed?.let { unlearnWord(it) }
+        if (src == "commit") committed?.let {
+            unlearnWord(it)
+            lastCommitLearned = null
+        }
         // Armed only for a commit retype: the tentative and cursor cases have no committed
         // word the user can be said to have rejected.
         retypeRejected = if (config.retypeAvoidsRejected && src == "commit") {
@@ -2406,6 +2454,15 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
         val left = backspaceLeft(before, word, COMMIT_TAIL_CHARS)
         backspaceTarget = if (left == null || left == 0) null else word
         if (left != null && left >= 0) DecodeTrace.log { "  backspace into commit word=$word left=$left src=$src" }
+        // Deleting into the word just committed rejects it: the +1 that commit earned goes
+        // back, once, so a junk decode deleted on sight is not left in the learned list.
+        val learned = lastCommitLearned
+        if (learned != null && learned == word.lowercase() && deleteTakesBackCommit(left, word.length)) {
+            lastCommitLearned = null
+            unlearnWord(word)
+            if (lastLearnedPair?.second == learned) unlearnLastPair()
+            DecodeTrace.log { "  unlearn word=$word src=$src" }
+        }
     }
 
     /**
@@ -2437,7 +2494,7 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
         autospaceInserted = false
         autospaceFromTaps = false
         DecodeTrace.log { "  autospace retract" }
-        reloadWordUnderCursor(beforeTime)
+        reloadWordUnderCursor(beforeTime, byHand = false)
     }
 
     /**
@@ -2592,7 +2649,7 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
         // Whether the span holds the keyboard's own space is decided before the delete, as
         // onBackspace does: afterwards the evidence is gone.
         val deletedAutospace = autospaceInserted && staged.endsWith(" ")
-        val eating = if (DecodeTrace.enabled) lastCommit.retypeWord ?: backspaceTarget else null
+        val eating = lastCommit.retypeWord ?: backspaceTarget
         if (anchor >= span) {
             ich.deleteEndingAt(anchor, span)
             expectAt(anchor - span)
@@ -2893,7 +2950,7 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
         if (consumeCtrl("backspace")) return
         cancelAutospace()
         if (undoAutocorrect()) return
-        val eating = if (DecodeTrace.enabled) lastCommit.retypeWord ?: backspaceTarget else null
+        val eating = lastCommit.retypeWord ?: backspaceTarget
         // Whether this delete is aimed at the keyboard's own space, decided before the
         // deletion because afterwards the evidence is gone. Deleting the space itself makes
         // the flags describing it stale; deleting a letter says nothing about it.
@@ -2936,7 +2993,7 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
      * "perché"; apostrophes are skipped (the trie search re-inserts
      * dictionary apostrophes for free).
      */
-    private fun reloadWordUnderCursor(beforeTime: Long = SystemClock.uptimeMillis()) {
+    private fun reloadWordUnderCursor(beforeTime: Long = SystemClock.uptimeMillis(), byHand: Boolean = true) {
         if (editorState.privateMode) return
         // Peck mode has no prediction to re-seed; reloading would resurrect
         // the suggestion pipeline through the backspace path.
@@ -2953,6 +3010,10 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
         tentativeLength = fragment.length
         tentativeWord = fragment
         reloadedWord = fragment
+        reloadedByHand = byHand
+        // The word this keyboard committed here, if it is still that word: its bar comes back.
+        reloadHistory = commitHistory.at(cursorExpected() - fragment.length, fragment)
+        if (reloadHistory != null) DecodeTrace.log { "  reload word=$fragment from=history" }
         // Whatever the timer was armed for, it is not what the composer holds now.
         cancelAutospace()
         comp.seed(taps)
@@ -3183,6 +3244,7 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
         // The tapped word is the real final commit: it earns the weight, and
         // the replaced word hands back the count the unwanted commit earned.
         learnWord(replacement, lang = replacementLang)
+        lastCommitLearned = replacement.lowercase()
         if (!current.equals(replacement, ignoreCase = true)) {
             unlearnWord(current)
         }
@@ -3220,10 +3282,21 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
         if (p != null && !comp.hasSwipeToken() && lastLiteral.isNotEmpty() &&
             !editorState.privateMode
         ) {
-            val target = if (threshold != null) {
+            val keeps = keepsTypedLetters(
+                editedByHand = reloadedWord != null && reloadedByHand,
+                rejected = lastLiteral.lowercase() in rejectedCorrections,
+            )
+            val target = if (threshold != null && !keeps) {
                 p.tapAutocorrect(lastLiteral, lastTentative, threshold)
+                    ?.takeUnless { p.isWord(lastLiteral) && heldOutsideActive(lastLiteral) }
             } else {
                 null
+            }
+            if (keeps && threshold != null) {
+                DecodeTrace.log {
+                    "  autocorrect kept typed=$lastLiteral " +
+                        if (reloadedWord != null && reloadedByHand) "src=edit" else "src=undone"
+                }
             }
             if (target != null) {
                 val display = displayWord(target.word)
@@ -3700,6 +3773,7 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
         candidateLanguages = emptyMap()
         lastLiteral = ""
         suggestionBar?.clearSuggestions()
+        lastCommitLearned = null
         if (word.isNotEmpty() && !editorState.teachesNothing) {
             // Every commit (top prediction, tapped correction or manual typing) is one unit of
             // personal evidence, filed to the dictionary the word came from by its per-word
@@ -3708,6 +3782,7 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
             if (!swipeDecodeEmpty && learnsOnCommit(word, reloadedWord)) {
                 val filed = sharedFiling.languageFor(heldBy(word), lang)
                 learnWord(word, lang = filed)
+                lastCommitLearned = word.lowercase()
                 lastLearnedWord = word.lowercase()
                 lastLearnedWordLang = filed
                 // The pair is learned from the same evidence as the word, under the same
@@ -3736,6 +3811,8 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
         }
         swipeDecodeEmpty = false
         reloadedWord = null
+        reloadedByHand = false
+        reloadHistory = null
         updateBarWordPending()
     }
 
@@ -3747,6 +3824,8 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
         expansionChoice = null
         composer?.clear()
         reloadedWord = null
+        reloadedByHand = false
+        reloadHistory = null
         seededWithoutTokens = false
         tentativeLength = 0
         tentativeWord = ""
@@ -3777,6 +3856,8 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
         keptBar = KeptBar(tentativeWord, tail)
         composer?.clear()
         reloadedWord = null
+        reloadedByHand = false
+        reloadHistory = null
         seededWithoutTokens = false
         tentativeLength = 0
         tentativeWord = ""
@@ -3867,6 +3948,8 @@ class KineticaIME : InputMethodService(), GestureEngine.Listener, WordComposer.C
         const val TAG = "KineticaIME"
         const val USER_DICT_LIMIT = 5000
         const val USER_PAIR_LIMIT = 5000
+        // Undone autocorrects remembered at once: more distinct words than one session undoes.
+        const val REJECTED_CORRECTIONS_MAX = 64
         // A learned word only becomes searchable at a dictionary load, and a load parses
         // 49k words plus 100k bigrams. 1500 ms lets a burst of new words in one sentence
         // cost one parse, and still has the word usable while the user is typing the
@@ -4759,6 +4842,43 @@ internal fun demoteRejected(
     val i = candidates.indexOfFirst { it.word.equals(rejected, ignoreCase = true) }
     if (i < 0) return candidates
     return candidates.toMutableList().apply { add(removeAt(i)) }
+}
+
+/**
+ * Whether a delimiter keeps the tapped letters as typed instead of autocorrecting them.
+ *
+ * - [editedByHand]: the word was reopened from the editor by a backspace or a cursor move and
+ *   changed. Going back to turn a `d` into an `s`, or to finish `tion` after the keyboard made
+ *   it `tino`, is the user spelling the word; correcting it again undid the edit, three times
+ *   in a row in one capture.
+ * - [rejected]: the user already took back an autocorrect of these exact letters.
+ */
+internal fun keepsTypedLetters(editedByHand: Boolean, rejected: Boolean): Boolean = editedByHand || rejected
+
+/**
+ * Whether a backspace has taken the last commit apart, so the +1 it earned goes back: [left]
+ * is [backspaceLeft]'s answer after the delete. Junk decodes deleted on sight (`tsvlet`, `ioen`,
+ * `preet`) otherwise stayed in the learned list, 30 of 449 learned commits in one capture.
+ */
+internal fun deleteTakesBackCommit(left: Int?, wordLength: Int): Boolean =
+    left != null && left >= 0 && left < wordLength
+
+/**
+ * The bar for a word reopened untouched: the word on screen, then what the bar offered when it
+ * was committed (so a swipe's own candidates come back), then the letters' decode. Without a
+ * [history] it is the decode alone.
+ */
+internal fun reloadWords(decoded: List<String>, history: CommitHistory.Record?, current: String): List<String> {
+    if (history == null) return decoded
+    val out = ArrayList<String>()
+    fun add(w: String) {
+        if (w.isNotEmpty() && out.none { it.equals(w, ignoreCase = true) }) out.add(w)
+    }
+    add(current)
+    add(history.word)
+    history.alternatives.forEach(::add)
+    decoded.forEach(::add)
+    return out
 }
 
 /**

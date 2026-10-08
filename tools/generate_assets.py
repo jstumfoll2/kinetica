@@ -32,6 +32,7 @@ import argparse
 import bz2
 import collections
 import hashlib
+import itertools
 import logging
 import math
 import re
@@ -944,6 +945,71 @@ def contraction_freq(misspelled: str, contracted: str, freq: dict[str, int]) -> 
     return ceiling if ceiling is not None else CONTRACTION_FALLBACK_FREQ
 
 
+# OpenSubtitles text partly comes from OCR of image subtitles, which reads a capital I as l
+# ("lt", "ln", "lf") and an l as i ("aii", "iike", "couid"). Those strings reach the list at
+# real-word counts ("aii" 9 323, rank ~4 000) and sit one key from the word on the board, so
+# a swipe for "all" can decode, commit and learn "aii". A spelling is an OCR confusion when
+# turning some of its i/l letters into the other gives a word at least
+# OCR_CONFUSION_RATIO times as frequent. Real words that pass that test stay listed.
+OCR_CONFUSION_LANGS = {"en"}
+OCR_CONFUSION_RATIO = 100
+OCR_CONFUSION_MAX_SITES = 4
+OCR_CONFUSION_KEEP = {"en": {"l", "ali", "cali", "pius", "heil"}}
+
+
+def ocr_confusions(lang: str, rows: list[tuple[str, int]]) -> dict[str, str]:
+    """Spellings in [rows] that are OCR i/l confusions, each mapped to the word it misreads."""
+    if lang not in OCR_CONFUSION_LANGS:
+        return {}
+    freq = dict(rows)
+    keep = OCR_CONFUSION_KEEP.get(lang, set())
+    out: dict[str, str] = {}
+    for w, c in rows:
+        if w in keep:
+            continue
+        sites = [i for i, ch in enumerate(w) if ch in "il"]
+        if not sites or len(sites) > OCR_CONFUSION_MAX_SITES:
+            continue
+        best = None
+        for letters in itertools.product("il", repeat=len(sites)):
+            v = list(w)
+            for i, ch in zip(sites, letters):
+                v[i] = ch
+            cand = "".join(v)
+            if cand != w and freq.get(cand, 0) >= OCR_CONFUSION_RATIO * c:
+                if best is None or freq[cand] > freq[best]:
+                    best = cand
+        if best is not None:
+            out[w] = best
+    return out
+
+
+def drop_ocr_confusions(lang: str, rows: list[tuple[str, int]]) -> list[tuple[str, int]]:
+    drops = ocr_confusions(lang, rows)
+    if drops:
+        LOG.info("ocr confusions dropped: %d", len(drops))
+    return [(w, c) for w, c in rows if w not in drops]
+
+
+def drop_ocr_existing(lang: str, out_dir: Path, dry_run: bool) -> int:
+    """Offline over the committed <lang>_wordlist.txt: the OCR confusion pass, rewritten in place."""
+    path = out_dir / f"{lang}_wordlist.txt"
+    rows = [
+        (w, int(c))
+        for w, c in (line.split("\t") for line in path.read_text(encoding="utf-8").splitlines())
+    ]
+    drops = ocr_confusions(lang, rows)
+    for w, b in sorted(drops.items()):
+        LOG.info("  %s -> %s", w, b)
+    kept = [(w, c) for w, c in rows if w not in drops]
+    if dry_run:
+        LOG.info("dry run: %s %d -> %d rows", path, len(rows), len(kept))
+        return 0
+    path.write_text("".join(f"{w}\t{c}\n" for w, c in kept), encoding="utf-8")
+    LOG.info("cleaned %s: %d -> %d rows", path, len(rows), len(kept))
+    return 0
+
+
 def augment_contractions(
     rows: list[tuple[str, int]], lang: str, refresh: bool = False
 ) -> list[tuple[str, int]]:
@@ -1093,6 +1159,12 @@ def main() -> int:
         "accents left off, judged by Tatoeba's written use (--bigrams-file or a download)",
     )
     parser.add_argument(
+        "--drop-ocr-confusions",
+        action="store_true",
+        help="offline over the committed <lang>_wordlist.txt: drop OCR i/l misreadings "
+        "such as aii (all) and iike (like)",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="report what would be written without writing files",
@@ -1106,6 +1178,9 @@ def main() -> int:
         return augment_existing(
             lang, args.out_dir, args.dry_run, args.refresh_contractions
         )
+
+    if args.drop_ocr_confusions:
+        return drop_ocr_existing(lang, args.out_dir, args.dry_run)
 
     if args.clean_diacritics:
         if lang not in DIACRITIC_LANGS:
@@ -1161,6 +1236,7 @@ def main() -> int:
         LOG.info("aosp merge: %d new words from %s", len(merged), args.merge_aosp)
         unigrams = sorted(unigrams + merged, key=lambda r: -r[1])
 
+    unigrams = drop_ocr_confusions(lang, unigrams)
     unigrams = augment_contractions(unigrams, lang, refresh=args.refresh_contractions)
 
     vocab = {w for w, _ in unigrams}
